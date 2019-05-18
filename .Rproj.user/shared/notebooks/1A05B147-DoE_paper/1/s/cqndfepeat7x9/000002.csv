@@ -1,0 +1,3 @@
+"0","# load data set"
+"0","#heart.df <- read_sas(""thoracic_data.sas7bdat"")"
+"0","heart.df <- read_sas(paste0(data.path,""thoracic_data.sas7bdat""))"
