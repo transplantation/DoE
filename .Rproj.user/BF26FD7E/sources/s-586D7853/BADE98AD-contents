@@ -504,9 +504,8 @@ heart.df.cleaned<-cbind(heart.df.cleaned,new_vars)
 
 rm(list=c("new_vars")) #remove the unnecessary object
 
-# The variable: STERNOTOMY_TRR is re-grouped.The definition derived from
-# https://www.srtr.org/requesting-srtr-data/saf-data-dictionary/ 
-# it was under  STATJUST_HR1A  section and the variable name is CANHX_CARD_STERNOTOMIES	
+# The variable: STERNOTOMY_TRR is re-grouped.The definition is based on pediatric TRR
+table(heart.df.cleaned$STERNOTOMY_TRR)
 val_old <- c(1,2,3,998)
 val_new <- c("ONE", "MORE","MORE", "UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="STERNOTOMY_TRR",val_old,val_new)
