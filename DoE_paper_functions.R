@@ -35,8 +35,8 @@ detect_terms <- function(x,term){
   result <- sapply(x, function(y) any(gsub(" ", "", strsplit(y, ",")[[1]])==term))
   if (all(is.na(result))) return(NA)
   result <- ifelse(is.na(result), FALSE, result)
-  if (any(result==TRUE)) return("YES")
-  return("NO")
+  if (any(result==TRUE)) return("Y")
+  return("N")
 }
 
 

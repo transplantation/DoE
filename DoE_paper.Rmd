@@ -261,7 +261,7 @@ heart.df.cleaned <- cat_changer(heart.df.cleaned,var="ABO_DON",val_old,val_new)
 
 # The variable: DIAB is re-grouped. 
 val_old <- c(1,2,3,4,5,998)
-val_new<-c("NO","ONE","TWO","OTHER","OTHER","UNKNOWN")
+val_new<-c("N","ONE","TWO","OTHER","OTHER","UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="DIAB",val_old,val_new)
 
 # previous cardiac surgery /merge of (PRIOR_CARD_SURG_TCR, PRIOR_CARD_SURG_TRR)
@@ -270,31 +270,31 @@ heart.df.cleaned$CARD_SURG <- NA
 for(i in 1:nrow(heart.df.cleaned)){
   if(!is.na(heart.df.cleaned$PRIOR_CARD_SURG_TCR[i])){
     if(heart.df.cleaned$PRIOR_CARD_SURG_TCR[i]=="Y"){
-      heart.df.cleaned$CARD_SURG[i] <- "YES"
+      heart.df.cleaned$CARD_SURG[i] <- "Y"
     }
     if(heart.df.cleaned$PRIOR_CARD_SURG_TCR[i]=="N"){
       if(!is.na(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i])){
         if(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i]=="N"){
-          heart.df.cleaned$CARD_SURG[i] <- "NO"
+          heart.df.cleaned$CARD_SURG[i] <- "N"
           }
       }
     }
   }
   if(!is.na(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i])){
-    if(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i]=="Y"){heart.df.cleaned$CARD_SURG[i] <- "YES"
+    if(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i]=="Y"){heart.df.cleaned$CARD_SURG[i] <- "Y"
     }
   }
 }
 
-# In the data set, several variables are related to different types of antigen alleles. Each antigen has two allele types, so these variables recoreded: 0: no match, 1: one matched, 2: both matched. Instead of using these variables, we use the variables that recored summaries of matches in these antigen alleles: HLAMIS, AMIS, BMIS , DRMIS and remove the following variables: 
+# In the data set, several variables are related to different types of antigen alleles. Each antigen has two allele types, so these variables recoreded: 0: no mismatch, 1: one matched, 2: both mismatched. Instead of using these variables, we use the variables that recored summaries of matches in these antigen alleles: HLAMIS, AMIS, BMIS , DRMIS and remove the following variables: 
 
 heart.df.cleaned[c("DA1","DA2","RA1","RA2","DB1","DB2","RB1","RB2","RDR1","RDR2","DDR1","DDR2")] <- NULL 
 
 # refrence for HLAMIS
-# Weisdorf, Daniel, et al. "Classification of HLA-matching for retrospective analysis of unrelated donor transplantation: revised definitions # to predict survival." Biology of Blood and Marrow Transplantation 14.7 (2008): 748-758.
+# Weisdorf, Daniel, et al. "Classification of HLA-matching for retrospective analysis of unrelated donor transplantation: revised definitions to predict survival." Biology of Blood and Marrow Transplantation 14.7 (2008): 748-758.
+# refrences for HLAMIS, AMIS, BMIS, DRMIS:
+# Parham, Peter. The immune system. Garland Science, 2014 (PAGE 446).
 
-# refrences for AMIS, BMIS, DRMIS:
-# Parham, Peter. The immune system. Garland Science, 2014.
 val_old <- 0:6
 val_new <- c("LOWEST","LOWEST","LOWEST","LOW","MEDIUM","HIGH","HIGHEST")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HLAMIS",val_old,val_new)
@@ -306,9 +306,9 @@ for(i in 1:nrow(heart.df.cleaned)){
   if(!is.na(heart.df.cleaned$ETHCAT[i])){
     if(!is.na(heart.df.cleaned$ETHCAT_DON[i])){
       if(heart.df.cleaned$ETHCAT_DON[i]==heart.df.cleaned$ETHCAT[i]){
-        heart.df.cleaned$ETH_MAT[i] <- "YES"
+        heart.df.cleaned$ETH_MAT[i] <- "Y"
       }else{
-          heart.df.cleaned$ETH_MAT[i]<-"NO"
+          heart.df.cleaned$ETH_MAT[i]<-"N"
           }
     }
   }
@@ -319,9 +319,9 @@ for(i in 1:nrow(heart.df.cleaned)){
   if(!is.na(heart.df.cleaned$GENDER[i])){
     if(!is.na(heart.df.cleaned$GENDER_DON[i])){
       if(heart.df.cleaned$GENDER[i]==heart.df.cleaned$GENDER_DON[i]){
-        heart.df.cleaned$GENDER_MAT[i]<-"YES"
+        heart.df.cleaned$GENDER_MAT[i]<-"Y"
       }else{
-          heart.df.cleaned$GENDER_MAT[i]<-"NO"
+          heart.df.cleaned$GENDER_MAT[i]<-"N"
           }
     }
   }
@@ -386,8 +386,7 @@ In this section, we re-group levels in some categroical variables and develop so
 # We drop maligancy (MALIG_TY,MALIG_TY_TCR) variables because the levels of categories are not distinguishable well and there are too many NAs.
 heart.df.cleaned[ c("WL_ID_CODE", "WL_ORG","INIT_DATE","TX_DATE","CTR_CODE","DATA_TRANSPLANT",
                    "DATA_WAITLIST","DISTANCE", "DON_RETYP","ECD_DONOR","END_OPO_CTR_CODE","HOME_STATE_DON",
-                   "INIT_OPO_CTR_CODE", "INOTROP_VASO_CO_TRR","INOTROP_VASO_DIA_TRR","INOTROP_VASO_MN_TRR", 
-                   "INOTROP_VASO_PCW_TRR","INOTROP_VASO_SYS_TCR","INOTROP_VASO_SYS_TRR","LISTING_CTR_CODE","LOS",
+                   "INIT_OPO_CTR_CODE", "LISTING_CTR_CODE","LOS",
                    "MALIG_TY","MALIG_TY_TCR","OPO_CTR_CODE","ORGAN","OTH_LIFE_SUP_OSTXT_TCR","OTH_LIFE_SUP_OSTXT_TRR",
                    "PERM_STATE","PRIOR_CARD_SURG_TYPE_OSTXT_TCR","PRIOR_CARD_SURG_TYPE_OSTXT_TRR","PT_CODE",
                    "TRR_ID_CODE")] <- NULL
@@ -418,25 +417,25 @@ heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HIV_SEROSTATUS",val_old,va
 
 # Two variables: BRONCHO_LT_DON & BRONCHO_RT_DON are re-grouped.
 val_old <- c(1,2,3,4,5,6,7,998)
-val_new <- c("NO","NORMAL","ABNORMAL","ABNORMAL","ABNORMAL","ABNORMAL","OTHER","UNKNOWN")
+val_new <- c("N","NORMAL","ABNORMAL","ABNORMAL","ABNORMAL","ABNORMAL","OTHER","UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="BRONCHO_LT_DON",val_old,val_new)
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="BRONCHO_RT_DON",val_old,val_new)
 
 
 # The variable: CHEST_XRAY_DON is re-grouped.
 val_old <- c(0,1,2,3,4,5,998,999)
-val_new <- c("UNKNOWN","NO","NORMAL","ABNORMAL_SINGLE","ABNORMAL_SINGLE","ABNORMAL_BOTH","UNKNOWN","UNKNOWN")
+val_new <- c("UNKNOWN","N","NORMAL","ABNORMAL_SINGLE","ABNORMAL_SINGLE","ABNORMAL_BOTH","UNKNOWN","UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="CHEST_XRAY_DON",val_old,val_new)
 
 
 # The variable: CORONARY_ANGIO is re-grouped.  
 val_old <- c(1,2,3)
-val_new <- c("NO", "YES_NORMAL","YES_ABNORMAL")
+val_new <- c("N", "Y_NORMAL","Y_ABNORMAL")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="CORONARY_ANGIO",val_old,val_new)
 
 # Two variable: HIST_DIABETES_DON and HYPERTENS_DUR_DON are re-grouped.
 val_old <- c(1,2,3,4,5,998)
-val_new <- c("NO","YES","YES","YES","YES","UNKNOWN")
+val_new <- c("N","Y","Y","Y","Y","UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HIST_DIABETES_DON",val_old,val_new)
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HYPERTENS_DUR_DON",val_old,val_new)
 
@@ -505,13 +504,40 @@ heart.df.cleaned<-cbind(heart.df.cleaned,new_vars)
 rm(list=c("new_vars")) #remove the unnecessary object
 
 # The variable: STERNOTOMY_TRR is re-grouped.The definition is based on pediatric TRR
-table(heart.df.cleaned$STERNOTOMY_TRR)
 val_old <- c(1,2,3,998)
 val_new <- c("ONE", "MORE","MORE", "UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="STERNOTOMY_TRR",val_old,val_new)
 
 # We drop the variable: TX_YEAR from dataset since we want to have a more versatile model
 heart.df.cleaned$TX_YEAR<-NULL
+
+
+# The variable: ABO_MAT is re-grouped. 
+val_old <- c(1,2,3) 
+val_new <- c("IDENTICAL", "NOT_IDENTICAL", "NOT_IDENTICAL")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="ABO_MAT",val_old,val_new)
+
+# The variable: AMIS, BMIS, AND DRMIS are re-grouped. 
+val_old <- c(0,1,2) 
+val_new <- c("NO_MISMATCH", "ONE_MISMATCHED", "TWO_MISMATCHED")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="AMIS",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="BMIS",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="DRMIS",val_old,val_new)
+
+# The variable: INOTROPES_TCR, INOTROPES_TRR, OTHER_INF_DON, AND PULM_INF_DON are re-grouped.
+val_old <- c(0,1) 
+val_new <- c("N", "Y")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="INOTROPES_TCR",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="INOTROPES_TRR",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="OTHER_INF_DON",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PULM_INF_DON",val_old,val_new)
+
+
+# The variable: MED_COND_TRR are re-grouped.
+val_old <- c(1,2,3) 
+val_new <- c("ICU_HOSPITALIZED", "HOSPITALIZED","NOT_HOSPITALIZED")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="MED_COND_TRR",val_old,val_new)
+
 
 #===================================================================
 # Here we drop columns that 90% of their data is NA.
@@ -529,9 +555,10 @@ struct <- as.data.frame(table(heart.df.cleaned[i]))
 if(nrow(struct)>0){
 max_cat <- max(struct$Freq)
 all_freq <- sum(struct$Freq)
-if((max_cat/all_freq)>0.9) cat_dis[i] <- 1}
+if((max_cat/all_freq)>0.90) cat_dis[i] <- 1}
 }
-names(heart.df.cleaned[(cat_dis==1)])<-NULL
+sum(cat_dis==1)
+heart.df.cleaned[names(heart.df.cleaned[(cat_dis==1)])]<-NULL
 #===================================================================
 
 # Here we define categorical and numerical variables
@@ -559,8 +586,9 @@ NA_Col_Rate <- NA_Col_Rate[which(NA_Col_Rate$na_count_col>0.3),]
 NA_Col_Rate <- NA_Col_Rate$varname
 heart.df.cleaned[NA_Col_Rate] <- NULL
 
-# We updated the numerical variables used in the cleaned dataset 
-pool_num_clean <- pool_num[which(pool_num %in% names(heart.df.cleaned))] 
+# changing category of "NUM_PREV_TX" from numerical to categorical
+pool_num<-pool_num[!pool_num %in% "NUM_PREV_TX"]
+pool_char<-c(pool_char,"NUM_PREV_TX")
 
 
 #####################
@@ -599,15 +627,13 @@ pool_num_clean<-pool_num_clean[!pool_num_clean %in% "GTIME"]
 pool_char_clean[pool_char_clean %in% "GSTATUS"]<-"year1"
 
 
-# changing category of "NUM_PREV_TX" from numerical to categorical
-pool_num_clean<-pool_num_clean[!pool_num_clean %in% "NUM_PREV_TX"]
-pool_char_clean<-c(pool_char_clean,"NUM_PREV_TX")
-
 heart.df.cleaned.copy<-heart.df.cleaned
 
-#save1
 #this list will keep dataframes of the next scenarios:
 dfs<-list()
+
+#save1
+
 
 ```
 ## treating missing values for numerical and categorical variables
@@ -718,7 +744,7 @@ heart.df.cleaned<-heart.df.cleaned.copy
 #dropping observations with  NAs
 # "FUNC_STAT_TRR" and "FUNC_STAT_TCR" are widely cited in the literature, then we want to keep then through the
 # heuristic approach of dropping rows and column
-obj_data <- table_cleaner(heart.df.cleaned,1,"ID","year1",c("FUNC_STAT_TRR","FUNC_STAT_TCR"))
+obj_data <- table_cleaner(heart.df.cleaned,1,"ID","year1",c("KEEP_ALL"))
 
 
 
@@ -861,7 +887,7 @@ rm(list=c("heart.df.cleaned_char","heart.df.cleaned_num","df.mo.med"))
 ```
 
 
-##8th scenario: NA values of categorical variables are dropped and for numrical variables are imputed by median**. 
+##8th imputation scenario: NA values of categorical variables are dropped and for numrical variables are imputed by median**. 
 If we drop observations that their categorical variables are NA, we loose all the observations.We try to maximize remaining cells through a heuristic algorithm which through a loop, we drop rows and columns based on the maximum emptiness until just non-empty cells are remained
 ```{r , message=FALSE, cache=TRUE, error=FALSE}
 
@@ -889,7 +915,7 @@ df.dr.med<-cbind(heart.df.cleaned_char,heart.df.cleaned_num,heart.df.cleaned["ID
 #dropping observations with  NAs through the huristic algorithm
 # "FUNC_STAT_TRR" and "FUNC_STAT_TCR" are widely cited in the literature, then we want to keep then through the
 # heuristic approach of dropping rows and column
-obj_data2 <- table_cleaner(df.dr.med,1,"ID","year1",c("FUNC_STAT_TRR","FUNC_STAT_TCR"))
+obj_data2 <- table_cleaner(df.dr.med,1,"ID","year1",c("KEEP_ALL"))
 
 
 df.dr.med<-obj_data2$data
