@@ -2,19 +2,19 @@
     "collab_server" : "",
     "contents" : "",
     "created" : 1558215244213.000,
-    "dirty" : false,
+    "dirty" : true,
     "encoding" : "UTF-8",
     "folds" : "",
-    "hash" : "2827338095",
+    "hash" : "3461134278",
     "id" : "BADE98AD",
-    "lastKnownWriteTime" : 1558215397,
-    "last_content_update" : 1558215447050,
+    "lastKnownWriteTime" : 1558255410,
+    "last_content_update" : 1558255783142,
     "path" : "C:/Users/hza0020/Box/Transplant/github/DoE/DoE_paper.Rmd",
     "project_path" : "DoE_paper.Rmd",
     "properties" : {
-        "cursorPosition" : "63,0",
+        "cursorPosition" : "480,0",
         "last_setup_crc32" : "586D785356079dde",
-        "scrollLine" : "52"
+        "scrollLine" : "473"
     },
     "read_only" : false,
     "read_only_alternatives" : [

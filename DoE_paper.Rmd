@@ -261,7 +261,7 @@ heart.df.cleaned <- cat_changer(heart.df.cleaned,var="ABO_DON",val_old,val_new)
 
 # The variable: DIAB is re-grouped. 
 val_old <- c(1,2,3,4,5,998)
-val_new<-c("no","one","two","OTHER","OTHER","UNKNOWN")
+val_new<-c("NO","ONE","TWO","OTHER","OTHER","UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="DIAB",val_old,val_new)
 
 # previous cardiac surgery /merge of (PRIOR_CARD_SURG_TCR, PRIOR_CARD_SURG_TRR)
@@ -270,18 +270,18 @@ heart.df.cleaned$CARD_SURG <- NA
 for(i in 1:nrow(heart.df.cleaned)){
   if(!is.na(heart.df.cleaned$PRIOR_CARD_SURG_TCR[i])){
     if(heart.df.cleaned$PRIOR_CARD_SURG_TCR[i]=="Y"){
-      heart.df.cleaned$CARD_SURG[i] <- "Y"
+      heart.df.cleaned$CARD_SURG[i] <- "YES"
     }
     if(heart.df.cleaned$PRIOR_CARD_SURG_TCR[i]=="N"){
       if(!is.na(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i])){
         if(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i]=="N"){
-          heart.df.cleaned$CARD_SURG[i] <- "N"
+          heart.df.cleaned$CARD_SURG[i] <- "NO"
           }
       }
     }
   }
   if(!is.na(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i])){
-    if(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i]=="Y"){heart.df.cleaned$CARD_SURG[i] <- "Y"
+    if(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i]=="Y"){heart.df.cleaned$CARD_SURG[i] <- "YES"
     }
   }
 }
@@ -296,7 +296,7 @@ heart.df.cleaned[c("DA1","DA2","RA1","RA2","DB1","DB2","RB1","RB2","RDR1","RDR2"
 # refrences for AMIS, BMIS, DRMIS:
 # Parham, Peter. The immune system. Garland Science, 2014.
 val_old <- 0:6
-val_new <- c("a","a","a","b","c","f","e")
+val_new <- c("LOWEST","LOWEST","LOWEST","LOW","MEDIUM","HIGH","HIGHEST")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HLAMIS",val_old,val_new)
 
 # the following block is our variable manipulation based on the other literature as specified in Ali Dag's paper.
@@ -306,9 +306,9 @@ for(i in 1:nrow(heart.df.cleaned)){
   if(!is.na(heart.df.cleaned$ETHCAT[i])){
     if(!is.na(heart.df.cleaned$ETHCAT_DON[i])){
       if(heart.df.cleaned$ETHCAT_DON[i]==heart.df.cleaned$ETHCAT[i]){
-        heart.df.cleaned$ETH_MAT[i] <- "Y"
+        heart.df.cleaned$ETH_MAT[i] <- "YES"
       }else{
-          heart.df.cleaned$ETH_MAT[i]<-"N"
+          heart.df.cleaned$ETH_MAT[i]<-"NO"
           }
     }
   }
@@ -319,9 +319,9 @@ for(i in 1:nrow(heart.df.cleaned)){
   if(!is.na(heart.df.cleaned$GENDER[i])){
     if(!is.na(heart.df.cleaned$GENDER_DON[i])){
       if(heart.df.cleaned$GENDER[i]==heart.df.cleaned$GENDER_DON[i]){
-        heart.df.cleaned$GENDER_MAT[i]<-"Y"
+        heart.df.cleaned$GENDER_MAT[i]<-"YES"
       }else{
-          heart.df.cleaned$GENDER_MAT[i]<-"N"
+          heart.df.cleaned$GENDER_MAT[i]<-"NO"
           }
     }
   }
@@ -329,48 +329,49 @@ for(i in 1:nrow(heart.df.cleaned)){
 
 # PROC_TY_HR, from literature
 val_old <- c(1,2)
-val_new <- c("Bicaval","Traditional")
+val_new <- c("BICAVAL","TRADITIONAL")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PROC_TY_HR",val_old,val_new)
 
 # The variable: SHARE_TY is regrouped.
 # ALLOCATION TYPE-LOCAL/REGIONAL/NATIONAL - 3=LOCAL/4=REGIONAL/5=NATIONAL/6=FOREIGN
-val_old <- c(3,4)
-val_new <- c("LOCAL","REGIONAL")
+val_old <- c(3,4,5)
+val_new <- c("LOCAL","REGIONAL","NATIONAL")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="SHARE_TY",val_old,val_new)
 
 # The variable: EDUCATION is regrouped.
 val_old <- c(1,2,3,4,5,6,996,998)
-val_new <- c("a","a","b","c","d","d","OTHER","UNKNOWN")
+val_new <- c("OTHER","GRADE","HIGH","COLLEGE","UNIVERSITY","UNIVERSITY","OTHER","UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="EDUCATION",val_old,val_new)
 
 # The variables: ETHCAT, ethnicity of recepients are re-grouped
 val_old <- c(1,2,4,5,6,7,9,998)
-val_new <- c("w","b","h","o","o","o","o","UNKNOWN")
+val_new <- c("WHITE","BLACK","HISPANIC","OTHER","OTHER","OTHER","OTHER","UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="ETHCAT",val_old,val_new)
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="ETHCAT_DON",val_old,val_new)
 
 # We dropped PRI_PAYMENT_CTRY_TRR and PRI_PAYMENT_CTRY_TRR because of too many NAs
 heart.df.cleaned[c("PRI_PAYMENT_CTRY_TCR","PRI_PAYMENT_CTRY_TRR")] <- NULL
 
+
 # Two variables: PRI_PAYMENT_TCR and PRI_PAYMENT_TRR are re-grouped.
 val_old <- seq(1,15)
-val_new<-c("pv","pbma","pbmcffs","pbmoth","pbmoth","pbmoth","pbmoth","OTHER","OTHER","OTHER","OTHER","OTHER","OTHER","OTHER","UNKNOWN")
+val_new<-c("PRIVATE","MEDICAID","MEDICARE_FREE","PUBLIC_OTHER","PUBLIC_OTHER","PUBLIC_OTHER","PUBLIC_OTHER","OTHER","OTHER","OTHER","OTHER","OTHER","PUBLIC_OTHER","OTHER","UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PRI_PAYMENT_TCR",val_old,val_new)
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PRI_PAYMENT_TRR",val_old,val_new)
 
 # The variable: REGION is re-grouped.
 val_old <- seq(1,11)
-val_new <- c("NE","NE","SE","SE","W","W","MW","MW","NE","MW","SE")
+val_new <- c("NOTH_EAST","NOTH_EAST","SOUTH_EAST","SOUTH_EAST","WEST","WEST","MIDWEST","MIDWEST","NOTH_EAST","MIDWEST","SOUTH_EAST")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="REGION",val_old,val_new)
 
 # here we re-group two variables: FUNC_STAT_TRR and FUNC_STAT_TCR, based on their activity level and hospitalization status
 # https://www.communitycarenc.org/media/tool-resource-files/what-does-it-take-qualify-personal-care-services-d.pdf
 # http://www.npcrc.org/files/news/karnofsky_performance_scale.pdf
 
-val_old <- c(1,2,3,996,998,2010,2020,2030,2040,2050,2060,2070,2080,2090,2100)
-val_new <- c("A","B","B","OTHER","UNKNOWN","C","C","C","C","D","D","D","E","E","E")
-heart.df.cleaned <- cat_changer(heart.df.cleaned,var="FUNC_STAT_TRR",val_old,val_new)
 
+val_old <- c(1,2,3,996,998,2010,2020,2030,2040,2050,2060,2070,2080,2090,2100)
+val_new <- c("ABLE","ASSISTED","DISABLE","OTHER","UNKNOWN","DISABLE","DISABLE","DISABLE","DISABLE","ASSISTED","ASSISTED","ASSISTED","ABLE","ABLE","ABLE")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="FUNC_STAT_TRR",val_old,val_new)
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="FUNC_STAT_TCR",val_old,val_new)
 
 #Due to discrepency, we drop these 2 variables especially the frequencies of natural cause for death are not consistent 
@@ -393,7 +394,7 @@ heart.df.cleaned[ c("WL_ID_CODE", "WL_ORG","INIT_DATE","TX_DATE","CTR_CODE","DAT
 
 # Nine variables: CMV_DON, EBV_SEROSTATUS, HBV_CORE, HBV_CORE_DON, HBV_SUR_ANTIGEN, HCV_SEROSTATUS, HEP_C_ANTI_DON, HTLV2_OLD_DON, HIV_SEROSTATUS are re-grouped.
 val_old <- c("C","I","N","ND","P","PD","U")
-val_new <- c("UNKNOWN","UNKNOWN","Neg","UNKNOWN","POS","UNKNOWN","UNKNOWN")
+val_new <- c("UNKNOWN","UNKNOWN","NEGATIVE","UNKNOWN","POSITIVE","UNKNOWN","UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="CMV_DON",val_old,val_new)
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="EBV_SEROSTATUS",val_old,val_new)
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HBV_CORE",val_old,val_new)
@@ -417,19 +418,20 @@ heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HIV_SEROSTATUS",val_old,va
 
 # Two variables: BRONCHO_LT_DON & BRONCHO_RT_DON are re-grouped.
 val_old <- c(1,2,3,4,5,6,7,998)
-val_new <- c("NO","BNOR","BAPS","BAOTH","BAOTH","BAOTH","BAOTH","UNKNOWN")
+val_new <- c("NO","NORMAL","ABNORMAL","ABNORMAL","ABNORMAL","ABNORMAL","OTHER","UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="BRONCHO_LT_DON",val_old,val_new)
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="BRONCHO_RT_DON",val_old,val_new)
 
+
 # The variable: CHEST_XRAY_DON is re-grouped.
 val_old <- c(0,1,2,3,4,5,998,999)
-val_new <- c("UNKNOWN","UNKNOWN","NOR","AB","AB","ABboth","UNKNOWN","UNKNOWN")
+val_new <- c("UNKNOWN","NO","NORMAL","ABNORMAL_SINGLE","ABNORMAL_SINGLE","ABNORMAL_BOTH","UNKNOWN","UNKNOWN")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="CHEST_XRAY_DON",val_old,val_new)
 
 
 # The variable: CORONARY_ANGIO is re-grouped.  
 val_old <- c(1,2,3)
-val_new <- c("NO", "YES_N","YES_NN")
+val_new <- c("NO", "YES_NORMAL","YES_ABNORMAL")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="CORONARY_ANGIO",val_old,val_new)
 
 # Two variable: HIST_DIABETES_DON and HYPERTENS_DUR_DON are re-grouped.
@@ -440,8 +442,8 @@ heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HYPERTENS_DUR_DON",val_old
 
 # Two variables: END_STAT, INIT_STAT are re-grouped.
 # although 2099 has low frequeency we do not merge based on the literature: Huang, Edmund, et al. "Incidence of conversion to active waitlist status among temporarily inactive obese renal transplant candidates, Transplantation 98.2 (2014): 177-186." 
-val_old <- c(2010,2020,2030,2090,2999)
-val_new <- c("ONE","ONE","TWO","ONE","OTHER")
+val_old <- c(1010, 1020, 1030, 1090, 1999,2010,2020,2030,2090,2999,7010,7999)
+val_new <- c("ONE","ONE","TWO","ONE","TEMPORARILY_INACTIVE","ONE","ONE","TWO","ONE","TEMPORARILY_INACTIVE","ACTIVE","TEMPORARILY_INACTIVE")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="END_STAT",val_old,val_new)
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="INIT_STAT",val_old,val_new)
 
@@ -462,8 +464,9 @@ heart.df.cleaned <- cat_changer(heart.df.cleaned,var="INIT_STAT",val_old,val_new
 # 13: Physician/Surgeon unavailable
 # 14: Candidate for living donor transplant only
 # We regroup this variable based on if it's inactive due to health issues
-val_old <- seq(1,15)
-val_new <- c("ONE", "ONE","ONE","ONE","ONE", "ONE","TWO","ONE","TWO", "ONE","ONE","ONE","ONE","ONE","ONE")
+
+val_old <- seq(1,14)
+val_new <- c("OTHER", "OTHER","OTHER","OTHER","OTHER","OTHER","HEALTH","OTHER","HEALTH","OTHER","HEALTH","OTHER","OTHER","OTHER")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="LAST_INACT_REASON",val_old,val_new)
 
 # The variable: NUM_PREV_TX is re-grouped.
@@ -475,10 +478,11 @@ heart.df.cleaned <- cat_changer(heart.df.cleaned,var="NUM_PREV_TX",val_old,val_n
 # Two variables: PRIOR_CARD_SURG_TYPE_TCR and PRIOR_CARD_SURG_TYPE_TRR are re-grouped.
 #search for procurement in this form: All_Forms_eg_RH.pdf
 # CABG: Coronary artery bypass graft
+table(heart.df.cleaned$PRIOR_CARD_SURG_TYPE_TCR)
 val_old <- seq(1,31)
-val_new <- c("CABG","VALV", "CABG","OTHER", "CABG","VALV", "CABG","OTHER", "CABG","VALV",
-         "CABG","OTHER", "CABG","VALV", "CABG","OTHER", "CABG","VALV", "CABG","OTHER",
-         "CABG","VALV", "CABG","OTHER", "CABG","VALV", "CABG","OTHER", "CABG","VALV", "CABG")
+val_new <- c("CABG_ONLY","VALVE_ONLY", "MULTIPLE","OTHER", "MULTIPLE","MULTIPLE", "MULTIPLE","OTHER", "MULTIPLE","MULTIPLE",
+             "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE", "MULTIPLE","OTHER", "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE",
+         "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE", "MULTIPLE")
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PRIOR_CARD_SURG_TYPE_TCR",val_old,val_new)
 heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PRIOR_CARD_SURG_TYPE_TRR",val_old,val_new)
 
