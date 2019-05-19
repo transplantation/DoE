@@ -40,14 +40,14 @@ p_load(haven,dplyr,caret,foreign,glmnet,
        kernlab,
        e1071,Boruta)
 data.path <- "C:\\Users\\hza0020\\OneDrive - Auburn University\\Transplant\\BUAL-LAB\\DoE\\"
-#source("https://github.com/Ying-Ju/Heart_Transplant/raw/master/isotonic_paper_functions.R")
+  source("https://raw.githubusercontent.com/transplantation/DoE/Hamid/DoE_paper_functions.R")
 # data.path <- "/Users/hamid/OneDrive - Auburn University/Transplant/BUAL-LAB/DoE/"
-source(paste0(data.path,"DoE_paper_functions.R"))
+# source(paste0(data.path,"DoE_paper_functions.R"))
 
 ```
 
 ## Loading Data and Assigning IDs for each case
-In this snippet below, we load the data file and the form that records the information regarding variables in the data. Both files are provided by UNOS but we added one column: **INTERPRETATION_TYPE** to the information form. It records the variable type for each variable in the data. This is a varaible we created based on the code book provided by UNOS. The information can be found [here](https://github.com/Ying-Ju/Heart_Transplant/blob/master/Interpretation_type.csv). The data dictionary can be found [here](https://www.srtr.org/requesting-srtr-data/saf-data-dictionary/).
+In this snippet below, we load the data file and the form that records the information regarding variables in the data. Both files are provided by UNOS but we added one column: **INTERPRETATION_TYPE** to the information form. It records the variable type for each variable in the data. This is a varaible we created based on the code book provided by UNOS. The information can be found [here](https://raw.githubusercontent.com/transplantation/DoE/Hamid/Interpretation_type.csv). The data dictionary can be found [here](https://www.srtr.org/requesting-srtr-data/saf-data-dictionary/).
 
 ```{r, message=FALSE, eval=FALSE, cache=TRUE, error=FALSE, warning=FALSE}
 # load data set
@@ -57,7 +57,7 @@ heart.df <- read_sas(paste0(data.path,"thoracic_data.sas7bdat"))
 # add ids for each row
 heart.df$ID <- row.names(heart.df)
 # heart.form contains the variable definitions of each variable in data
-heart.form <- read.csv("https://raw.githubusercontent.com/transplantation/DoE/Hamid/var_desc.csv")  
+heart.form <- read.csv("https://raw.githubusercontent.com/transplantation/DoE/Hamid/Interpretation_type.csv")  
 
 ```
 
