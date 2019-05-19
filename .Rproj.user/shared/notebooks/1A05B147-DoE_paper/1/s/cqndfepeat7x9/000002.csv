@@ -5,5 +5,5 @@
 "0","# add ids for each row"
 "0","heart.df$ID <- row.names(heart.df)"
 "0","# heart.form contains the variable definitions of each variable in data"
-"0","heart.form <- read.csv(""https://raw.githubusercontent.com/transplantation/DoE/Hamid/var_desc.csv"")  "
+"0","heart.form <- read.csv(""https://raw.githubusercontent.com/transplantation/DoE/Hamid/Interpretation_type.csv"")  "
 "0",""
