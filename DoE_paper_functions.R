@@ -618,6 +618,7 @@ holdout_index <- function(IDs, seed=2019){
 ## method: FFS or LASSO or RF
 ## ID: the ID for the test data set 
 ## seed: random seed used in the function, the default is 201905
+
 select_vars <- function(ii, df, y, method, ID, seed=201905){
   set.seed <- seed
   df <- df[!df$ID%in%ID[[ii]],]
@@ -641,10 +642,15 @@ select_vars <- function(ii, df, y, method, ID, seed=201905){
   }else if (method=="RF"){
     library(party)
     library(varImp)
-    formul<- as.formula(paste0(y,"~."))
-    cf1 <- Boruta::Boruta(formul, data = df, doTrace = 2)
-    find_vars <- cf1$finalDecision[which(cf1$finalDecision!="Rejected")]
-    Imp_vars <- names(find_vars)
+    # formul<- as.formula(paste0(y,"~."))
+    # cf1 <- Boruta::Boruta(formul, data = df, doTrace = 2)
+    # find_vars <- cf1$finalDecision[which(cf1$finalDecision!="Rejected")]
+    # Imp_vars <- names(find_vars)
+    # for parallel processing I have to load the functions
+    source("https://raw.githubusercontent.com/transplantation/DoE/Hamid/DOE_functions.R")
+    y<-as.factor(df[[y]])
+    Imp_vars <- var.sel.r2vim(X, y, no.runs = 1,ntree = 500, random_seed = seed)
+    Imp_vars<-Imp_vars$var
   }
   return(list(Imp_vars))
 }
@@ -668,7 +674,7 @@ select_vars <- function(ii, df, y, method, ID, seed=201905){
 ## 2. Predicted Survival Probabilities for the patients in the holdout object
 
 
-modeling <- function(ii,All_df,TARGET,Index_matrix,holdout_idenx,features,methods_input="glm", assigned_seed=2019, sampling_method=NULL){
+modeling <- function(ii,All_df,TARGET,Index_matrix,Index_test,features,methods_input="glm", assigned_seed=2019, sampling_method=NULL){
   library(caret)
   library(AUC)
   library(MASS)
@@ -678,7 +684,7 @@ modeling <- function(ii,All_df,TARGET,Index_matrix,holdout_idenx,features,method
   test_no <- Index_matrix[ii,1]
   impute_no <- Index_matrix[ii,2]
   df <- All_df[[impute_no]]
-  index_t<- which(df$ID%in%holdout_idenx[[test_no]])
+  index_t<- which(df$ID%in%Index_test[[test_no]])
   df <- df[,c(features[[impute_no]][[test_no]], TARGET)]
   hold_out <- df[index_t,]
   traindata <- df[-index_t,]
@@ -734,10 +740,275 @@ modeling <- function(ii,All_df,TARGET,Index_matrix,holdout_idenx,features,method
   return(list(Performance=resul_pred_perf, Predicted=resul_raw))
 }
 
+#' Variable selection using recurrent relative variable importance (r2VIM).
+#'
+#' Generates several random forests using all variables and different random
+#' number seeds. For each run, the importance score is divided by the (absolute)
+#' minimal importance score (relative importance scores). Variables are selected
+#' if the minimal relative importance score is >= factor.
+#'
+#' Note: This function is a reimplementation of the R package \code{RFVarSelGWAS}.
+#'
+#' @inheritParams wrapper.rf
+#' @param no.runs number of random forests to be generated
+#' @param factor minimal relative importance score for a variable to be selected
+#'
+#' @return List with the following components:
+#'   \itemize{
+#'   \item \code{info} data.frame
+#'   with information for each variable
+#'   \itemize{
+#'   \item vim.run.x = original variable importance (VIM) in run x
+#'   \item rel.vim.run.x = relative VIM in run x
+#'   \item rel.vim.min = minimal relative VIM over all runs
+#'   \item rel.vim.med = median relative VIM over all runs
+#'   \item selected = variable has been selected
+#'   }
+#'   \item \code{var} vector of selected variables
+#'   }
+#'
+#'  @examples
+#' # simulate toy data set
+#' data = simulation.data.cor(no.samples = 100, group.size = rep(10, 6), no.var.total = 200)
+#'
+#' # select variables
+#' res = var.sel.r2vim(x = data[, -1], y = data[, 1], no.runs = 5, factor = 1)
+#' res$var
+#'
+#' @export
+
+var.sel.r2vim <- function(x, y, no.runs = 1, factor = 1, ntree = 500, 
+                          mtry.prop = 0.2, nodesize.prop = 0.1,
+                          no.threads = 1, method = "ranger", 
+                          type = "classification",random_seed =seed) {
+  set.seed(random_seed)
+  
+  ## importance for each run
+  imp.all = NULL
+  for (r in 1:no.runs) {
+    print(paste("run", r))
+    rf = wrapper.rf(x = x, y = y,
+                    ntree = ntree, mtry.prop = mtry.prop, nodesize.prop = nodesize.prop, no.threads = no.threads,
+                    method = method, type = type)
+    imp.all = cbind(imp.all, get.vim(rf))
+  }
+  
+  ## factors
+  min.global = min(imp.all)
+  if (min.global >= 0) {
+    stop("Global minimal importance score is not negative!")
+  }
+  no.neg.min = 0
+  fac = matrix(nrow = nrow(imp.all), ncol = ncol(imp.all),
+               dimnames = dimnames(imp.all))
+  for (i in 1:ncol(imp.all)) {
+    x = imp.all[,i]
+    min = min(x)
+    if (min >= 0) {
+      no.neg.min = no.neg.min + 1
+      fac[,i] = x / abs(min.global)
+    } else {
+      fac[, i] = x / abs(min)
+    }
+  }
+  if (no.neg.min > 0) {
+    print(paste(no.neg.min, "runs with no negative importance score!"))
+  }
+  fac.min = apply(fac, 1, min)
+  fac.med = apply(fac, 1, median)
+  
+  ## select variables
+  ind.sel = as.numeric(fac.min >= factor)
+  
+  ## info about variables
+  info = data.frame(imp.all, fac, fac.min, fac.med, ind.sel)
+  colnames(info) = c(paste("vim.run.", 1:no.runs, sep = ""),
+                     paste("rel.vim.run.", 1:no.runs, sep = ""),
+                     "rel.vim.min", "rel.vim.median", "selected")
+  return(list(info = info, var = sort(rownames(info)[info$selected == 1])))
+}
+
+#' Wrapper function to call random forests function.
+#'
+#' Provides an interface to different parallel implementations of the random
+#' forest algorithm. Currently, only the \code{ranger} package is
+#' supported.
+#'
+#' @param x matrix or data.frame of predictor variables with variables in
+#'   columns and samples in rows (Note: missing values are not allowed).
+#' @param y vector with values of phenotype variable (Note: will be converted to factor if
+#'   classification mode is used).
+#' @param ntree number of trees.
+#' @param mtry.prop proportion of variables that should be used at each split.
+#' @param nodesize.prop proportion of minimal number of samples in terminal
+#'   nodes.
+#' @param no.threads number of threads used for parallel execution.
+#' @param method implementation to be used ("ranger").
+#' @param type mode of prediction ("regression", "classification" or "probability").
+#' @param ... further arguments needed for \code{\link[relVarId]{holdout.rf}} function only.
+#'
+#' @return An object of class \code{\link[ranger]{ranger}}.
+#'
+#' @import methods stats
+#'
+#' @export
+#'
+#' @examples
+#' # simulate toy data set
+#' data = simulation.data.cor(no.samples = 100, group.size = rep(10, 6), no.var.total = 200)
+#'
+#' # regression
+#' wrapper.rf(x = data[, -1], y = data[, 1],
+#'            type = "regression", method = "ranger")
+
+wrapper.rf <- function(x, y, ntree = 100, mtry.prop = 0.2, nodesize.prop = 0.1, no.threads = 1,
+                       method = "ranger", type = "regression", ...) {
+  
+  ## check data
+  if (length(y) != nrow(x)) {
+    stop("length of y and number of rows in x are different")
+  }
+  
+  if (any(is.na(x))) {
+    stop("missing values are not allowed")
+  }
+  
+  if (type %in% c("probability", "regression") & (is.character(y) | is.factor(y))) {
+    stop("only numeric y allowed for probability or regression mode")
+  }
+  
+  ## set global parameters
+  nodesize = floor(nodesize.prop * nrow(x))
+  mtry = floor(mtry.prop * ncol(x))
+  if (mtry == 0) mtry = 1
+  
+  if (type == "classification") {
+    #    print("in classification")
+    y = as.factor(y)
+  }
+  
+  ## run RF
+  if (method == "ranger") {
+    if (type == "probability") {
+      y = as.factor(y)
+      prob = TRUE
+    } else {
+      prob = FALSE
+    }
+    
+    rf = ranger::ranger(data = data.frame(y, x),
+                        dependent.variable.name = "y",
+                        probability = prob,
+                        importance = "permutation", scale.permutation.importance = FALSE,
+                        num.trees = ntree,
+                        mtry = mtry,
+                        min.node.size = nodesize,
+                        num.threads = no.threads,
+                        write.forest = TRUE,
+                        ...)
+  } else {
+    stop(paste("method", method, "undefined. Use 'ranger'."))
+  }
+  
+  return(rf)
+}
 
 
+#' Error calculation.
+#'
+#' Calculates errors by comparing predictions with the true values. For
+#' regression and probability mode, it will give root mean squared error (rmse) and
+#' pseudo R-squared (rsq). For classification mode, overall accuracy (acc), overall
+#' error (err), Matthews correlation coefficient (mcc), sensitivity (sens) and
+#' specificity (spec) are returned.
+#'
+#' @param rf Object of class \code{\link[ranger]{ranger}}
+#' @param true vector with true value for each sample
+#' @param test.set matrix or data.frame of predictor variables for test set with variables in
+#'   columns and samples in rows (Note: missing values are not allowed)
+#' @inheritParams wrapper.rf
+#'
+#' @return numeric vector with two elements for regression and probability estimation (rmse, rsq) and
+#' five elements for classification (acc, err, mcc, sens, spec)
+#'
+#' @export
+#'
+#' @examples
+#' # simulate toy data set
+#' data = simulation.data.cor(no.samples = 100, group.size = rep(10, 6), no.var.total = 200)
+#'
+#' # random forest
+#' rf = wrapper.rf(x = data[, -1], y = data[, 1],
+#'                 type = "regression")
+#'
+#' # error
+#' calculate.error(rf = rf, true = data[, 1])
+
+calculate.error <- function(rf, true, test.set = NULL) {
+  
+  if (is(rf, "ranger")) {
+    if (!is.null(test.set)) {
+      pred = predict(rf, data = test.set)$predictions
+    } else {
+      pred = rf$predictions
+    }
+    if (rf$treetype == "Probability estimation") {
+      pred = pred[, 2]
+    }
+  } else {
+    stop(paste("rf needs to be of class ranger"))
+  }
+  
+  if ((is(rf, "randomForest") && rf$type == "classification") |
+      (is(rf, "ranger") && rf$treetype == "Classification")) {
+    conf.matrix = table(pred = pred, true = true)
+    tp = conf.matrix[2, 2]
+    tn = conf.matrix[1, 1]
+    fn = conf.matrix[2, 1]
+    fp = conf.matrix[1, 2]
+    
+    ## accuracy
+    acc = (tp + tn) / sum(conf.matrix)
+    
+    ## Matthews correlation coefficient
+    mcc = (tp * tn - fp * fn) /
+      sqrt( (tp + fn) * (tn + fp) * (tp + fp) * (tn + fn))
+    
+    ## sensitivity
+    sens = tp / (tp + fn)
+    
+    ## specificity
+    spec = tn / (fp + tn)
+    
+    error = c(err = 1 - acc, acc = acc, mcc = mcc, sens = sens, spec = spec)
+  } else {
+    mse = sum((pred - true)^2, na.rm = TRUE) / sum(!is.na(pred))
+    
+    ## pseudo R-squared uses sum of squared differences divided by n instead of variance!
+    v = sum((true - mean(true))^2) / length(true)
+    rsq = 1 - mse/v
+    error = c(rmse = sqrt(mse), rsq = rsq)
+  }
+  
+  return(error)
+}
 
 
+#' Get variable importance.
+#'
+#' Extracts variable importance depending on class of random forest object.
+#'
+#' @param rf Object of class \code{\link[ranger]{ranger}}
+#'
+#' @return numeric vector with importance value for each variable (in original order)
+#'
+#' @export
 
-
-
+get.vim <- function(rf) {
+  if (is(rf, "ranger")) {
+    vim = ranger::importance(rf)
+  } else {
+    stop(paste("rf needs to be of class ranger"))
+  }
+  return(vim)
+}
