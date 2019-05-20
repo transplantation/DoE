@@ -647,7 +647,7 @@ select_vars <- function(ii, df, y, method, ID, seed=201905){
     # find_vars <- cf1$finalDecision[which(cf1$finalDecision!="Rejected")]
     # Imp_vars <- names(find_vars)
     # for parallel processing I have to load the functions
-    source("https://raw.githubusercontent.com/transplantation/DoE/Hamid/DOE_functions.R")
+    source("https://raw.githubusercontent.com/transplantation/DoE/Hamid/DoE_paper_functions.R")
     y<-as.factor(df[[y]])
     Imp_vars <- var.sel.r2vim(X, y, no.runs = 1,ntree = 500, random_seed = seed)
     Imp_vars<-Imp_vars$var
