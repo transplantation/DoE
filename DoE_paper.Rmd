@@ -937,7 +937,8 @@ dfs[[8]]<-df.dr.med
 rm(list=c("df.dr.med"))
 
 #scenario8
-rm(list=c("Index_test"))
+rm(list=c("heart.df.cleaned_char","heart.df.cleaned_num",
+          "heart.df.cleaned.copy"))
 
 #save2
 ```
