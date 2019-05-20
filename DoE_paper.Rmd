@@ -597,6 +597,9 @@ pool_char<-c(pool_char,"NUM_PREV_TX")
 pool_num_clean <- pool_num[which(pool_num %in% names(heart.df.cleaned))] 
 pool_char_clean <- pool_char[which(pool_char %in% names(heart.df.cleaned))]
 
+#removing the extra created data
+rm(list = "temp")
+
 ```
 <br />
 <br />
@@ -934,69 +937,31 @@ dfs[[8]]<-df.dr.med
 rm(list=c("df.dr.med"))
 
 #scenario8
+rm(list=c("Index_test"))
+
 #save2
 ```
 
-## Create the training and holdout datasets 
-In this snippet, we create the training and holdout datasets at each time point of interest. In order to both validate models on the holdout datasets and use isotonic regression to calibrate survival probabilities, we make sure all patients selected in the smallest holdout dataset were included in previous time points. This is not a necessary procedure for either prediction purpose or calibration of survival probabilities. 
-
-We use a list object keep_NA to record the following IDs:
-1. IDs for the dataset at each time point of interest
-2. IDs for the holdout dataset at each time point of interest
-3. IDs for the training dataset at each time point of interest
+## Enconding the variables and identifying train and test sets 
+In this snippet, we encode the driven data from each scenario in two ways of hard enconding and label enconding (8scenarios x 2 encondings =16 scenarios). Also, holdout IDs for distinguishing between train and holdout sets are identified.
 
 ```{r , message=FALSE, cache=TRUE, error=FALSE}
 # We keep IDs
-keep_NA <- rep(list(NA), 24)
-for (i in 1:8){
-  keep_NA[[i]] <- dfs[[i]][!is.na(dfs[[i]]["year1"]),"ID"]
-    
-}
-# here common patients in all the scenarios are specified
-common<-Reduce(intersect,list(keep_NA[[1]],keep_NA[[2]],keep_NA[[3]],keep_NA[[4]],keep_NA[[5]],keep_NA[[6]],keep_NA[[7]],keep_NA[[8]]))
-length(common)
+## identifying test IDs from cleaned data
+holdout_idenx <- holdout_index(heart.df.cleaned$ID, 2019)
 
-# We select the holdout sets that contain the smallest test data
-# Then we exclude those IDs from each scenario to find IDs for other training sets
-set.seed(1440)
+cat_vars <- setdiff(pool_char_clean, "year1")
 
-names(keep_NA)[1:8] <- paste0("ID",seq(1,8))
-all_sizes <- unname(unlist(lapply(keep_NA, length)))
-test_sizes <- round(all_sizes*0.2)
-train_sizes <- all_sizes - test_sizes
+## encoding (method = c("numeric", "factor"))
+df_num <- lapply(dfs, function(x) encode_cat(x,cat_vars,"numeric"))
+df_cat <- lapply(dfs, function(x) encode_cat(x,cat_vars,"factor"))
+All_data <- c(df_num, df_cat)
 
+## assign names for each component in the list
+names(All_data) <- c(paste0("NUM_",1:8), paste0("CAT_",1:8))
 
-minscen<-min(test_sizes[1:8])
-minID<-which(test_sizes == min(test_sizes[1:8]))
-one_ID<-minID[1]
-othID<-c(1:8)[!c(1:8) %in% minID]
-
-common_holdout<-sample(common,minscen)
-for(i in minID){
-  keep_NA[[8+i]] <- common_holdout
-}
-
-for(i in othID){
-  keep_NA[[8+i]] <- c(keep_NA[[8+one_ID]],sample(keep_NA[[i]],test_sizes-minscen))
-}
-
-for(i in 1:8){
-  names(keep_NA)[8+i] <- paste0("ID_holdout",i)
-}
-
-
-for (i in 1:8){
- keep_NA[[(16+i)]] <- setdiff(keep_NA[[i]], keep_NA[[8+i]])
- names(keep_NA)[(16+i)] <- paste0("ID_train", i)
-}
-
-
-# The one-hot encoding algorithm was applied to independent categorical variables, the function dummy_maker() is used. 
-dfs_dum<-list()
-for(i in 1:8){
-var_ind_char <- names(dfs[[i]])[!names(dfs[[i]]) %in% c(paste0("year",1), "ID",pool_num_clean)]
-dfs_dum[[i]] <- dummy_maker(dfs[[i]],var_ind_char)
-}
+## remove unused objects
+rm(dfs,df_num,df_cat)
 
 #save3
 ```

@@ -1,26 +1,28 @@
-library(snow)
-source("DOE_functions.R")
-n <- 159318 ## number of rows for heart.df
-Index_test <- testdata_index(n, 2019)
 
-before_encoding <- readRDS("G:\\Team Drives\\Hamid_Paper_3_DoE\\Data\\data_scenarios.rds")
-var_type <- readRDS("G:\\Team Drives\\Hamid_Paper_3_DoE\\Data\\var_type.rds")
-cat_vars <- setdiff(var_type$char, "year1")
+source("DOE_functions.R")
+## identifying test IDs from cleaned data
+Index_test <- testdata_index(heart.df.cleaned$ID, 2019)
+
+cat_vars <- setdiff(pool_char_clean, "year1")
 
 ## encoding (method = c("numeric", "factor"))
-df_num <- lapply(before_encoding, function(x) encode_cat(x,cat_vars,"numeric"))
-df_cat <- lapply(before_encoding, function(x) encode_cat(x,cat_vars,"factor"))
+df_num <- lapply(dfs, function(x) encode_cat(x,cat_vars,"numeric"))
+df_cat <- lapply(dfs, function(x) encode_cat(x,cat_vars,"factor"))
 All_data <- c(df_num, df_cat)
 
 ## assign names for each component in the list
 names(All_data) <- c(paste0("NUM_",1:8), paste0("CAT_",1:8))
 
 ## remove unused objects
-rm(before_encoding,df_num,df_cat)
+rm(dfs,df_num,df_cat)
+#save3
 
 ## variable selection FFS
 impute_no <- 16  #from 1 to 16
 features_FFS <- vector(mode="list", impute_no)
+
+
+
 
 for (i in 1:impute_no){
   cl <- makeCluster(4, type="SOCK")

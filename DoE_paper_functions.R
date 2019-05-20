@@ -597,14 +597,14 @@ encode_cat <- function(df, cat_vars, method){
 ## testdata_index() creates IDs for test data
 ## n: number of rows from the entire dataset
 ## seed: random seed used in the function, the default is 2019
-testdata_index <- function(n, seed=2019){
+holdout_index <- function(IDs, seed=2019){
+  n<-length(IDs)
   set.seed <- seed
   index <- list()
   index0 <- c()
-  train_list <- c()
-  test_list <- c()
+
   for (i in 1:5){
-    index[[i]] <- sample(setdiff(1:n, index0), floor(n/5))
+    index[[i]] <- sample(setdiff(IDs, index0), floor(n/5))
     index0 <- c(index0, index[[i]])
   }
   return(index)
@@ -668,7 +668,7 @@ select_vars <- function(ii, df, y, method, ID, seed=201905){
 ## 2. Predicted Survival Probabilities for the patients in the holdout object
 
 
-modeling <- function(ii,All_df,TARGET,Index_matrix,Index_test,features,methods_input="glm", assigned_seed=2019, sampling_method=NULL){
+modeling <- function(ii,All_df,TARGET,Index_matrix,holdout_idenx,features,methods_input="glm", assigned_seed=2019, sampling_method=NULL){
   library(caret)
   library(AUC)
   library(MASS)
@@ -678,7 +678,7 @@ modeling <- function(ii,All_df,TARGET,Index_matrix,Index_test,features,methods_i
   test_no <- Index_matrix[ii,1]
   impute_no <- Index_matrix[ii,2]
   df <- All_df[[impute_no]]
-  index_t<- which(df$ID%in%Index_test[[test_no]])
+  index_t<- which(df$ID%in%holdout_idenx[[test_no]])
   df <- df[,c(features[[impute_no]][[test_no]], TARGET)]
   hold_out <- df[index_t,]
   traindata <- df[-index_t,]
