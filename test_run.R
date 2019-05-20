@@ -17,6 +17,9 @@ names(All_data) <- c(paste0("NUM_",1:8), paste0("CAT_",1:8))
 rm(dfs,df_num,df_cat)
 #save3
 
+
+
+
 ## variable selection FFS
 impute_no <- 16  #from 1 to 16
 features_FFS <- vector(mode="list", impute_no)

@@ -949,7 +949,7 @@ In this snippet, we encode the driven data from each scenario in two ways of har
 ```{r , message=FALSE, cache=TRUE, error=FALSE}
 # We keep IDs
 ## identifying test IDs from cleaned data
-holdout_idenx <- holdout_index(heart.df.cleaned$ID, 2019)
+idenx_holdout <- holdout_index(heart.df.cleaned$ID, 2019)
 
 cat_vars <- setdiff(pool_char_clean, "year1")
 
@@ -980,22 +980,29 @@ In our study, three feature selection methods are adopted: Random Forest, Fast c
      
 features <- rep(list(NA), 4)
 names(features) <- c("FFS", "LASSO", "RF", "all")
+impute_no <- 16  #from 1 to 16
 
 #=============================================================
 #==============Fast Feature selection
 #=============================================================
 
-cl <- makeCluster(4, type="SOCK")
-features$FFS <- parSapply(cl, 1:8,FFS_features, dfs_dum, dependent="year1", exclud="ID") 
-stopCluster(cl)
+features_FFS <- vector(mode="list", impute_no)
+for (i in 1:impute_no){
+  cl <- makeCluster(4, type="SOCK")
+  features_FFS[[i]] <- parSapply(cl, 1:5, select_vars, All_data[[i]], "year1", "FFS", idenx_holdout, 2090)
+  stopCluster(cl)
+}
 
 #=============================================================
 #==============Lasso Feature selection for Binomial TARGETS
 #=============================================================
 
-cl <- makeCluster(4, type="SOCK")
-features$LASSO <- parSapply(cl, 1:8, LASSO_features, dfs_dum, dependent="year1", exclud="ID", folds=5,trace=F,alpha=1) 
-stopCluster(cl)
+features_LASSO <- vector(mode="list", impute_no)
+for (i in 1:impute_no){
+  cl <- makeCluster(4, type="SOCK")
+  features_LASSO[[i]] <- parSapply(cl, 1:5, select_vars, All_data[[i]], "year1", "LASSO", idenx_holdout, 2090)
+  stopCluster(cl)
+}
 
 #save4
 #=============================================
