@@ -35,14 +35,17 @@ library(pacman) # needs to be installed first
 # p_load is equivalent to combining both install.packages() and library()
 p_load(haven,dplyr,caret,foreign,glmnet,
        lubridate,dataPreparation,httr, DT, stringr, AUC, snow, testit,caretEnsemble,
-       C50, Biocomb,
+       C50, Biocomb, varImp, party,
        randomForest,
        kernlab,
-       e1071,Boruta)
+       e1071,Boruta,ROSE,DMwR)
 data.path <- "C:\\Users\\hza0020\\OneDrive - Auburn University\\Transplant\\BUAL-LAB\\DoE\\"
-  source("https://raw.githubusercontent.com/transplantation/DoE/Hamid/DoE_paper_functions.R")
+  # source("C:/Users/hza0020/OneDrive - Auburn University/Transplant/BUAL-LAB/DoE/temp/test RF/DOE_functions.R")
+
+#source("https://raw.githubusercontent.com/transplantation/DoE/Hamid/DoE_paper_functions.R")
+
 # data.path <- "/Users/hamid/OneDrive - Auburn University/Transplant/BUAL-LAB/DoE/"
-# source(paste0(data.path,"DoE_paper_functions.R"))
+source("https://raw.githubusercontent.com/transplantation/DoE/master/DoE_paper_functions.R")
 
 ```
 
@@ -713,7 +716,7 @@ heart.df.cleaned_char <- heart.df.cleaned[pool_char_clean]
 char_mode<-as.data.frame(apply(heart.df.cleaned_char,2,cahrmode) )
 
 for(j in pool_char_clean){
-  heart.df.cleaned_char[is.na(heart.df.cleaned_char[j]),j]<-char_mode[j,1]
+  heart.df.cleaned_char[is.na(heart.df.cleaned_char[j]),j]<-as.character(char_mode[j,1])
 }
 
 heart.df.cleaned_num <- heart.df.cleaned[pool_num_clean]
@@ -868,7 +871,7 @@ heart.df.cleaned_char <- heart.df.cleaned[pool_char_clean]
 char_mode<-as.data.frame(apply(heart.df.cleaned_char,2,cahrmode) )
 
 for(j in pool_char_clean){
-  heart.df.cleaned_char[is.na(heart.df.cleaned_char[j]),j]<-char_mode[j,1]
+  heart.df.cleaned_char[is.na(heart.df.cleaned_char[j]),j]<-as.character(char_mode[j,1])
 }
 
 
@@ -1003,28 +1006,104 @@ for (i in 1:impute_no){
   features_LASSO[[i]] <- parSapply(cl, 1:5, select_vars, All_data[[i]], "year1", "LASSO", idenx_holdout, 2090)
   stopCluster(cl)
 }
-
+save.image("C:/Users/hza0020/OneDrive - Auburn University/Transplant/BUAL-LAB/DoE/save_files/newsave4.RData")
 #save4
 #=============================================
 #==============Random Forest Feature Selection
 #=============================================
 
-cl <- makeCluster(4, type="SOCK")
-features$RF <- parSapply(cl, 1:2, RF_features, dfs_dum, dependent="year1", exclud="ID") 
+features_RF <- vector(mode="list", impute_no)
+for (i in 1:impute_no){
+  cl <- makeCluster(4, type="SOCK")
+  features_RF[[i]] <- parSapply(cl, 1:5, select_vars, All_data[[i]], "year1", "RF", idenx_holdout, 2090)
+  stopCluster(cl)
+}
+
+save.image("C:/Users/hza0020/OneDrive - Auburn University/Transplant/BUAL-LAB/DoE/save_files/newsave5.RData")
+
+
+
+```
+
+
+# screening design
+In this section of the study we define our screeing design in order to understand the contributing factors that
+may affect performance of the predictive algorithms
+
+```{r , message=FALSE, eval=FALSE, cache=TRUE, error=FALSE}
+
+# this is the candidate design if we consider 3 learning algorithms for each levels (types) of algorithms
+can_design<-expand.grid(ni_level = c("DROP", "MEDIAN"), ci_level = c("UNKNOWN", "MISSING", "MODE", "DROP"),
+            e_level = c("LABEL", "HARD"),fs_level=c("FFS", "RF", "LASSO"),
+            r_level=c("none", "down", "up", "rose", "smote"),
+            a_level=c("glm","LDA", "earth","nnet", "naive_bayes","svmRadial","xgbDART","gbm","ranger"))
+
+# this is another candidate design if we consider 2 learning algorithms for each levels (types) of algorithms
+full_design<-expand.grid(ni_level = c("DROP", "MEDIAN"), ci_level = c("UNKNOWN", "MISSING", "MODE", "DROP"),
+                         e_level = c("LABEL", "HARD"),fs_level=c("FFS", "RF", "LASSO"),
+                         r_level=c("none", "down", "up", "rose", "smote"),
+                         a_level=c("glm","earth","nnet", "svmRadial","xgbDART","ranger"))
+
+# here you can find how we setup data preparation and feature selection steps in the earlier section
+# for each style of factorial design we could find the ID and then use associated data and
+# features that we used
+data_design<-as.data.frame(matrix(0, ncol = 3, nrow = 16))
+names(data_design)<-c("numerical_imputation","categorical_imputation","encoding")
+data_design$numerical_imputation<-rep(rep(c("DROP", "MEDIAN"),each=4),2)
+data_design$categorical_imputation<-rep(c("UNKNOWN", "MISSING", "MODE", "DROP"),4)
+data_design$encoding<-rep(c("LABEL", "HARD"),each=8)
+data_design$ID<-rownames(data_design)
+
+# in the screening design we used all levels of Numerical imputation and encoding but 
+# we just used (DROP and MODE) levels of categorical imputation. So we can find the associated ID
+# then exclude those features and data for model training
+
+design_IDs<-data_design[which(data_design$categorical_imputation %in% c("MODE", "DROP")),"ID"]
+
+#design_IDs<-design_IDs[1:2]
+## Modeling
+iteration <- 5 #nrow(I_matrix)
+I_matrix <- matrix(c(rep(1:iteration,length(design_IDs)),rep(1:length(design_IDs),each=iteration)),ncol=2,byrow=F)
+
+
+FFS_used<-features_FFS[as.numeric(design_IDs)]
+RF_used<-features_RF[as.numeric(design_IDs)]
+LASSO_used<-features_LASSO[as.numeric(design_IDs)]
+All_data_used<-All_data[as.numeric(design_IDs)]
+
+sampling.method<-c("none", "down", "up", "rose", "smote")
+screening.resampling<-c("none", "smote")
+
+# 
+# cl <- makeCluster(5, type="SOCK")
+# modeling_result <- parSapply(cl, 1:iteration, modeling, All_data,All_data.scenario=design_IDs, "year1", I_matrix, 
+#                            idenx_holdout, FFS_used, "glm",
+#                            sampling.method= screening.resampling) 
+# stopCluster(cl)
+
+#identifying number of created clusters for parallel processing
+if(as.character(as.data.frame(t(Sys.info()))$sysname)=="Linux"){
+  n_cluster<-length(design_IDs)
+}else{if(as.character(as.data.frame(t(Sys.info()))$sysname)=="Windows"){n_cluster<-2}}
+
+
+
+cl <- makeCluster(n_cluster, type="SOCK")
+modeling_result <- parSapply(cl, as.numeric(design_IDs), model_data, All_data, "year1", I_matrix, 
+                           idenx_holdout, FFS_used, "glm", data_experiments=design_IDs,
+                           sampling.method= screening.resampling) 
 stopCluster(cl)
-saveRDS(features, paste0(data.path,"DoE_RF12.rds"))
 
 
-RF_6<-RF_features(dfs_dum[[6]],"year1","ID")
 
-save.image(paste0(data.path,"RF_6.RData"))
+cl <- makeCluster(n_cluster, type="SOCK")
+modeling_result <- parSapply(cl, as.numeric(design_IDs), model_data, All_data, "year1", I_matrix, 
+                           idenx_holdout, LASSO_used, "glm", data_experiments=design_IDs,
+                           sampling.method= screening.resampling) 
+stopCluster(cl)
 
-#The fourth option: We used all varaibles selected from the previous three selection methods
+save.image("C:/Users/hza0020/OneDrive - Auburn University/Transplant/BUAL-LAB/DoE/save_files/newsave_screen_FS.RData")
 
-features$all <- sapply(1:11, function(x) all_bin(x,features))
-
-# merge function didn't check duplicates 
-#year 4, 5, 6 has two COD_CAD_DON_HEAD_TRAUMA
 
 ```
 
