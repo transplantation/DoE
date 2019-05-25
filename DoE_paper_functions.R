@@ -773,11 +773,12 @@ modeling <- function(ii,All_df2,TARGET2,Index_matrix2,Index_test2,features2,meth
 
     # putting summary of the experiment in here
     experiment.summary<-as.data.frame(matrix(0, ncol = 4, nrow = 1))
-    names(experiment.summary)<-c("data_scenario","training_algorithm","resampling_method","fold")
+    names(experiment.summary)<-c("data_scenario","training_algorithm","resampling_method","fold","TARGET")
     experiment.summary$data_scenario<-All_data.scenario3
     experiment.summary$training_algorithm<-methods_input3
     experiment.summary$resampling_method<-iii
     experiment.summary$fold<-fold3
+    experiment.summary$TARGET<-as.character(TARGET3[1])
     
     return(list(experiment.summary=experiment.summary, Performance=resul_pred_perf, Predicted=resul_raw
                 ))
