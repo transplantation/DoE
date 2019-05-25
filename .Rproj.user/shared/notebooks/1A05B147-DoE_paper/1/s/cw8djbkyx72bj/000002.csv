@@ -1,0 +1,7 @@
+"0","rem_type <- as.data.frame(table(heart.form[which(heart.form$VARIABLE.NAME %in% names(heart.df.cleaned)), ""INTERPRETATION_TYPE""]))"
+"0","names(rem_type) <- c(""Variable Type"",""Frequency"")"
+"0","rem_type$`Variable Type` <- c(""Categorical"",""Initially Discarded"",""Date"",""Numerical"")"
+"0","org_type <- as.data.frame(table(heart.df$WL_ORG))"
+"0","names(org_type)<-c(""Organ Type"",""No. of Patients"")"
+"0","org_type$`Variable Type` <- c(""UNKNOWN"",""Heart & Lung"",""Heart"",""Lung"")"
+"0","DT::datatable(org_type)"

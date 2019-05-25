@@ -1,0 +1,1424 @@
+---
+title: "A Two-Stage Machine Learning Approach to Predict Heart Transplantation Survival Probabilities over Time with a Monotonic Probability Constraint"
+author:
+  - Hamidreza Ahady Dolatsara^[Aubrun University, [hamid@auburn.edu](mailto:hamid@auburn.edu)]
+  - Ying-Ju Tessa Chen^[University of Dayton, [ychen4@udayton.edu](mailto:ychen4@udayton.edu)]
+  - Fadel M. Megahed^[Miami University, [fmegahed@miamioh.edu](mailto:fmegahed@miamioh.edu)]
+
+
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    df_print: paged
+    code_folding: hide
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+This page documents the data cleaning and preparation procedure, variable selection, statistical modeling, and survival probability calibration procedures used in the research article: A Design of Experiement Approach for Improving Performance of Machine Learning Algorithms in predicting Survival of Transplant Surgeries. Data was provided from the **UNOS** registry by staff at the US, United Network for Organ Sharing. 
+
+The reader can **show** any code chunk by clicking on the *code* button. We chose to make the default for the code hidden since we: (a) wanted to improve the readability of this document; and (b) assumed that the readers will not be interested in reading every code chunk.
+
+# Loading Data & Data Clearning and Preparation
+The snippet below documents the list of **R** packages and functions that were used in this research. For convenience, we used the <tt>pacman</tt> package since it allows for installing/loading the needed packages in one step. 
+
+```{r, load_libraries, message=FALSE, eval=TRUE, cache=TRUE, error=FALSE, warning=FALSE}
+rm(list = ls()) # clear global environment
+graphics.off() # close all graphics
+library(pacman) # needs to be installed first
+# p_load is equivalent to combining both install.packages() and library()
+p_load(haven,dplyr,caret,foreign,glmnet,
+       lubridate,dataPreparation,httr, DT, stringr, AUC, snow, testit,caretEnsemble,
+       C50, Biocomb,
+       randomForest,
+       kernlab,
+       e1071,Boruta)
+data.path <- "C:\\Users\\hza0020\\OneDrive - Auburn University\\Transplant\\BUAL-LAB\\DoE\\"
+  source("https://raw.githubusercontent.com/transplantation/DoE/Hamid/DoE_paper_functions.R")
+# data.path <- "/Users/hamid/OneDrive - Auburn University/Transplant/BUAL-LAB/DoE/"
+# source(paste0(data.path,"DoE_paper_functions.R"))
+
+```
+
+## Loading Data and Assigning IDs for each case
+In this snippet below, we load the data file and the form that records the information regarding variables in the data. Both files are provided by UNOS but we added one column: **INTERPRETATION_TYPE** to the information form. It records the variable type for each variable in the data. This is a varaible we created based on the code book provided by UNOS. The information can be found [here](https://raw.githubusercontent.com/transplantation/DoE/Hamid/Interpretation_type.csv). The data dictionary can be found [here](https://www.srtr.org/requesting-srtr-data/saf-data-dictionary/).
+
+```{r, message=FALSE, eval=FALSE, cache=TRUE, error=FALSE, warning=FALSE}
+# load data set
+#heart.df <- read_sas("thoracic_data.sas7bdat")
+heart.df <- read_sas(paste0(data.path,"thoracic_data.sas7bdat"))
+
+# add ids for each row
+heart.df$ID <- row.names(heart.df)
+# heart.form contains the variable definitions of each variable in data
+heart.form <- read.csv("https://raw.githubusercontent.com/transplantation/DoE/Hamid/Interpretation_type.csv")  
+
+```
+
+Here is the information included in the form. 
+```{r, message=FALSE, cache=TRUE, echo=FALSE, error=FALSE, warning=FALSE}
+colnames(heart.form)
+```
+
+## Dropping un-used variables and observations
+Since our focus is to study the long term survival perdiction for an adult patient after a heart transplant is performed, we drop some variables and observations, based on the following criteria:
+  
+* variables that did not end & those added before 2000
+* patients who were under 18 years old
+* patients whose weights were less than the 0.01-th percentle of all pateints' weights
+* patients whose heights were less that the 0.01-th percentile of all patients' heights
+* patient who did not have information of transplanted organ
+* patients who has lung transplant, too.
+* variables that are not interesting/relevant for survival analysis (e.g. follow up number, Donor ID, Dates, and ...)
+
+```{r, message=FALSE, error=FALSE, cache=TRUE, warning=FALSE}
+## In the following lines, we want to find variables that are not used after 2000 or they were added after 2000.
+# Frist, we removes whitespace from start and end of each element in the variable VAR.END.DATE
+var.end.dates <- trimws(heart.form$VAR.END.DATE) %>% str_trim()
+
+# Second, identify the varaibles that are still used. 
+names.of.var.did.not.end <- heart.form[which(var.end.dates==""), 1] 
+
+# Make sure ID is included.
+names.of.var.did.not.end <- c(as.character(names.of.var.did.not.end), "ID")
+
+# Third, identify the variables that are not used now.
+vars_ended <- heart.form[which(heart.form$VARIABLE.NAME %in% names(heart.df)[!(names(heart.df) %in% names.of.var.did.not.end)]),(1:2)]
+
+# Figure out which date each variable was added
+vars.added.dates <- heart.form$VAR.START.DATE %>% as.character.Date()
+
+# Fix an error from the information, there were two dates corresponding to one variable. We chose the later date. 
+vars.added.dates[which(vars.added.dates=="01-Oct-87, 01-Oct-90")] <- "01-Oct-90"
+
+# Figure out which year each variable was added and add this information to the heart form
+heart.form$YR_ADDED <- sapply(vars.added.dates, function(x) str_extract_all(x,"[0-9]{1,2}")[[1]][2]) %>% as.integer()
+
+# available variables added before 2000 and they are still used now
+vars.added.before.2000 <- subset(heart.form, YR_ADDED>=87, select = c(1))  
+vars.added.NA <- subset(heart.form,is.na(YR_ADDED),select = c(1))
+vars.added.all <- rbind(vars.added.before.2000,vars.added.NA)
+vars.added.all <- vars.added.all[["VARIABLE.NAME"]] %>% 
+  as.character()
+
+vars.added.all <- c(as.character(vars.added.all), "ID")
+
+# Based on the criteria we have to find a subset of data: getting rid of variables that are ended and patients who were under 18 or too light or too short or didn't have a heart transplant.
+
+heart.df.cleaned <- subset(heart.df, WL_ORG=="HR") %>% # Heart 
+  subset(AGE>=18) %>% # Adults only
+  # we excluded too light or too short people 
+  subset(WGT_KG_DON_CALC >= quantile(WGT_KG_DON_CALC, 0.0001, na.rm = TRUE)) %>% 
+  subset(WGT_KG_TCR >= quantile(WGT_KG_TCR, 0.0001, na.rm = TRUE)) %>%
+  subset(HGT_CM_DON_CALC >= quantile(HGT_CM_DON_CALC, 0.0001, na.rm = TRUE)) %>% 
+  subset(HGT_CM_TCR >= quantile(HGT_CM_TCR, 0.0001, na.rm = TRUE)) %>% 
+  subset(select=intersect(names.of.var.did.not.end,vars.added.all))
+
+# Find variables that are related to dates
+vars_discarded <- heart.form %>% 
+  subset(INTERPRETATION_TYPE=="D", select=c(1,2))
+heart.discard <- vars_discarded$VARIABLE.NAME %>% as.character()
+
+# Identify the variables that are related to dates in the data and remove them
+heart.discard <- intersect(heart.discard, colnames(heart.df.cleaned))
+
+heart.df.cleaned <- select(heart.df.cleaned, -heart.discard) 
+
+```
+
+## Remove variables that are related to post transplant 
+In the snippet below, we identify and remove the variables that are post transplant based on the information from the heart form and form Section Descriptors.
+
+```{r, message=FALSE, error=FALSE, cache=TRUE, warning=FALSE}
+vars.post.trans.index1 <-  sapply(heart.form$FORM.SECTION,    
+                      function(x) str_detect(x, "POST TRANSPLANT CLINICAL INFORMATION"))
+vars.post.trans.index2 <-  sapply(heart.form$FORM,
+                      function(x) str_detect(x, "TRF/TRR|TRR/TRF-CALCULATED|TRR/TRF|TRF"))
+vars_post<- heart.form[as.logical(vars.post.trans.index1+vars.post.trans.index2),][,1] %>%
+  as.character()
+
+# Identify the post transplant variables in the heart form
+vars_posttrans <- heart.form[which(heart.form$VARIABLE.NAME %in% vars_post),(1:2)]
+# Identify the post transplant variables in the data
+vars.post.trans <- intersect(colnames(heart.df.cleaned),
+                             vars_post)
+# Remove the post transplant variables in the data
+heart.df.cleaned <- select(heart.df.cleaned,-vars.post.trans)
+
+```
+<br />
+<br />
+**Here are the variables we dropped in the initial check for being not interesting/irrelevant**
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+DT::datatable(vars_discarded)
+```
+<br />
+<br />
+**Here are the variables UNOS didn't use by 09/30/2016 (e.g. PRAMR_CL2).**
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+DT::datatable(vars_ended)
+```
+<br />
+<br />
+**Here are the the post transplant variables. We drop them from the data.**
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+DT::datatable(vars_posttrans)
+```
+<br />
+<br />
+**Below are two reports. The first one reports the organ distribution of patients in the dataset and the second one is about the remaining variables (discarded means irrelevant/not interesting variables).**
+**We already got rid of discarded variables so the corresponding frequency is zero**
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+rem_type <- as.data.frame(table(heart.form[which(heart.form$VARIABLE.NAME %in% names(heart.df.cleaned)), "INTERPRETATION_TYPE"]))
+names(rem_type) <- c("Variable Type","Frequency")
+rem_type$`Variable Type` <- c("Categorical","Initially Discarded","Date","Numerical")
+org_type <- as.data.frame(table(heart.df$WL_ORG))
+names(org_type)<-c("Organ Type","No. of Patients")
+org_type$`Variable Type` <- c("UNKNOWN","Heart & Lung","Heart","Lung")
+DT::datatable(org_type)
+DT::datatable(rem_type)
+
+cat("Number of patients after dropping irrelevant patients: ",nrow(heart.df.cleaned))
+
+```
+<br />
+<br />
+
+## Create several variables based on literature
+In this section, we create several variables based on several references.
+1. Medved, Dennis, et al. "Improving prediction of heart transplantation outcome using deep learning techniques." Scientific reports 8.1 (2018): 3613.
+2. Dag, Ali, et al. "Predicting heart transplantation outcomes through data analytics." Decision Support Systems 94 (2017): 42-52.
+
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+# ref1: Medved, Dennis, et al. "Improving prediction of heart transplantation outcome using deep learning techniques." Scientific reports 8.1 (2018): 3613.
+  # refer to a tool provided in the: http://ihtsa.cs.lth.se/ , which is product of this paper:
+  # https://www.nature.com/articles/s41598-018-21417-7.pdf
+
+# ref2: Dag, Ali, et al. "Predicting heart transplantation outcomes through data analytics." Decision Support Systems 94 (2017): 42-52.
+
+# create several variables based on references and obtain the subset of the data based on the criteria
+
+heart.df.cleaned <- subset(heart.df.cleaned) %>%  
+  #ref1
+  mutate(PVR = (HEMO_PA_MN_TRR- HEMO_PCW_TRR)*79.72/HEMO_CO_TRR) %>% 
+  #ref1
+  mutate(ISCHTIME = ISCHTIME*60) %>% 
+  #ref1
+  mutate(ECMO = ifelse(ECMO_TCR + ECMO_TRR == 0, 0, 1)) %>% 
+  # PVR, pulmonary vascular resistance / its calculation is based on the below mentioned links:
+  # https://en.wikipedia.org/wiki/Vascular_resistance
+  # http://www.scymed.com/en/smnxph/phkhr013.htm
+  # https://radiopaedia.org/articles/mean-pulmonary-arterial-pressure  (calculation of Mean Pulmonary Arterial Pressure)
+  # PVR= (Mean Pulmonary Arterial Pressure (mmHg) - Pulmonary Capillary Wedge Pressure (mmHg)) * 79.72 / Cardiac Output (L/min)
+  # PVR = (HEMO_PA_MN_TRR - HEMO_PCW_TRR)* 79.72 / HEMO_CO_TRR
+
+  # ECMO / merge of (ECMO_TCR, ECMO_TRR)
+
+  # The following variables are mutated by the authors
+  mutate(BMI_CHNG = 100*(BMI_CALC- INIT_BMI_CALC)/INIT_BMI_CALC) %>%
+  # mutate(WAITING_TIME = TX_DATE - INIT_DATE)  %>%  #no need, because it is already in there as "DAYSWAIT_CHRON"
+  mutate(WGT_CHNG = 100*(WGT_KG_CALC - INIT_WGT_KG_CALC)/INIT_WGT_KG_CALC) %>%
+  mutate(HGT_CHNG = 100*(HGT_CM_CALC - INIT_HGT_CM_CALC)/INIT_HGT_CM_CALC) %>%
+  mutate(AGE_MAT = abs(AGE - AGE_DON)) %>%
+  mutate(BMI_MAT = abs(BMI_CALC - BMI_DON_CALC))
+
+```
+
+## Re-group some categorical variables based on literature
+In this section, we re-group levels in some categroical variables and develop some categorical variables based on literature considering the pool of patients.
+
+The function we use to re-group levels in a categorical variable is cat_changer() and it has four input values. The usage of this function can be found in **isotonic_paper_functions.R**. 
+In the end of this snippet, we remove two variables (DEATH_CIRCUM_DON" and DEATH_MECH_DON) due to discrepency.
+
+
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+# We regroup Diagnosis variables (three variables: DIAG, TCR_DGN, THORACIC_DGN) as follows
+
+val_old <- c(1000,1001,1002,1003,1004,1005,1006,1049,1007,1200,999,1999)
+val_new <- c("DILATED_MYOPATHY_IDI","DILATED_MYOPATHY_OTH","DILATED_MYOPATHY_OTH","DILATED_MYOPATHY_OTH","DILATED_MYOPATHY_OTH","DILATED_MYOPATHY_OTH","DILATED_MYOPATHY_OTH","DILATED_MYOPATHY_OTH","DILATED_MYOPATHY_ISC","CORONARY","OTHER","UNKNOWN")
+
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="DIAG",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="TCR_DGN",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="THORACIC_DGN",val_old,val_new)
+
+
+# The variable: COD_CAD_DON is re-grouped
+val_old <- c(1,2,3,4,999,"Unknown")
+val_new <- c("ANOXIA","CEREBROVASCULAR_STROKE","HEAD_TRAUMA","OTHER","OTHER","UNKNOWN")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="COD_CAD_DON",val_old,val_new)
+
+# The variables regarding blood types are re-grouped. 
+val_old <- c("A","A1","A2","B","O","AB","A1B","A2B")
+val_new <- c("A","A","A","B","O","AB","AB","AB")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="ABO",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="ABO_DON",val_old,val_new)
+
+# The variable: DIAB is re-grouped. 
+val_old <- c(1,2,3,4,5,998)
+val_new<-c("N","ONE","TWO","OTHER","OTHER","UNKNOWN")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="DIAB",val_old,val_new)
+
+# previous cardiac surgery /merge of (PRIOR_CARD_SURG_TCR, PRIOR_CARD_SURG_TRR)
+
+heart.df.cleaned$CARD_SURG <- NA
+for(i in 1:nrow(heart.df.cleaned)){
+  if(!is.na(heart.df.cleaned$PRIOR_CARD_SURG_TCR[i])){
+    if(heart.df.cleaned$PRIOR_CARD_SURG_TCR[i]=="Y"){
+      heart.df.cleaned$CARD_SURG[i] <- "Y"
+    }
+    if(heart.df.cleaned$PRIOR_CARD_SURG_TCR[i]=="N"){
+      if(!is.na(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i])){
+        if(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i]=="N"){
+          heart.df.cleaned$CARD_SURG[i] <- "N"
+          }
+      }
+    }
+  }
+  if(!is.na(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i])){
+    if(heart.df.cleaned$PRIOR_CARD_SURG_TRR[i]=="Y"){heart.df.cleaned$CARD_SURG[i] <- "Y"
+    }
+  }
+}
+
+# In the data set, several variables are related to different types of antigen alleles. Each antigen has two allele types, so these variables recoreded: 0: no mismatch, 1: one matched, 2: both mismatched. Instead of using these variables, we use the variables that recored summaries of matches in these antigen alleles: HLAMIS, AMIS, BMIS , DRMIS and remove the following variables: 
+
+heart.df.cleaned[c("DA1","DA2","RA1","RA2","DB1","DB2","RB1","RB2","RDR1","RDR2","DDR1","DDR2")] <- NULL 
+
+# refrence for HLAMIS
+# Weisdorf, Daniel, et al. "Classification of HLA-matching for retrospective analysis of unrelated donor transplantation: revised definitions to predict survival." Biology of Blood and Marrow Transplantation 14.7 (2008): 748-758.
+# refrences for HLAMIS, AMIS, BMIS, DRMIS:
+# Parham, Peter. The immune system. Garland Science, 2014 (PAGE 446).
+
+val_old <- 0:6
+val_new <- c("LOWEST","LOWEST","LOWEST","LOW","MEDIUM","HIGH","HIGHEST")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HLAMIS",val_old,val_new)
+
+# the following block is our variable manipulation based on the other literature as specified in Ali Dag's paper.
+
+heart.df.cleaned$ETH_MAT <- NA
+for(i in 1:nrow(heart.df.cleaned)){
+  if(!is.na(heart.df.cleaned$ETHCAT[i])){
+    if(!is.na(heart.df.cleaned$ETHCAT_DON[i])){
+      if(heart.df.cleaned$ETHCAT_DON[i]==heart.df.cleaned$ETHCAT[i]){
+        heart.df.cleaned$ETH_MAT[i] <- "Y"
+      }else{
+          heart.df.cleaned$ETH_MAT[i]<-"N"
+          }
+    }
+  }
+}
+
+heart.df.cleaned$GENDER_MAT <- NA
+for(i in 1:nrow(heart.df.cleaned)){
+  if(!is.na(heart.df.cleaned$GENDER[i])){
+    if(!is.na(heart.df.cleaned$GENDER_DON[i])){
+      if(heart.df.cleaned$GENDER[i]==heart.df.cleaned$GENDER_DON[i]){
+        heart.df.cleaned$GENDER_MAT[i]<-"Y"
+      }else{
+          heart.df.cleaned$GENDER_MAT[i]<-"N"
+          }
+    }
+  }
+}  
+
+# PROC_TY_HR, from literature
+val_old <- c(1,2)
+val_new <- c("BICAVAL","TRADITIONAL")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PROC_TY_HR",val_old,val_new)
+
+# The variable: SHARE_TY is regrouped.
+# ALLOCATION TYPE-LOCAL/REGIONAL/NATIONAL - 3=LOCAL/4=REGIONAL/5=NATIONAL/6=FOREIGN
+val_old <- c(3,4,5)
+val_new <- c("LOCAL","REGIONAL","NATIONAL")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="SHARE_TY",val_old,val_new)
+
+# The variable: EDUCATION is regrouped.
+val_old <- c(1,2,3,4,5,6,996,998)
+val_new <- c("OTHER","GRADE","HIGH","COLLEGE","UNIVERSITY","UNIVERSITY","OTHER","UNKNOWN")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="EDUCATION",val_old,val_new)
+
+# The variables: ETHCAT, ethnicity of recepients are re-grouped
+val_old <- c(1,2,4,5,6,7,9,998)
+val_new <- c("WHITE","BLACK","HISPANIC","OTHER","OTHER","OTHER","OTHER","UNKNOWN")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="ETHCAT",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="ETHCAT_DON",val_old,val_new)
+
+# We dropped PRI_PAYMENT_CTRY_TRR and PRI_PAYMENT_CTRY_TRR because of too many NAs
+heart.df.cleaned[c("PRI_PAYMENT_CTRY_TCR","PRI_PAYMENT_CTRY_TRR")] <- NULL
+
+
+# Two variables: PRI_PAYMENT_TCR and PRI_PAYMENT_TRR are re-grouped.
+val_old <- seq(1,15)
+val_new<-c("PRIVATE","MEDICAID","MEDICARE_FREE","PUBLIC_OTHER","PUBLIC_OTHER","PUBLIC_OTHER","PUBLIC_OTHER","OTHER","OTHER","OTHER","OTHER","OTHER","PUBLIC_OTHER","OTHER","UNKNOWN")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PRI_PAYMENT_TCR",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PRI_PAYMENT_TRR",val_old,val_new)
+
+# The variable: REGION is re-grouped.
+val_old <- seq(1,11)
+val_new <- c("NOTH_EAST","NOTH_EAST","SOUTH_EAST","SOUTH_EAST","WEST","WEST","MIDWEST","MIDWEST","NOTH_EAST","MIDWEST","SOUTH_EAST")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="REGION",val_old,val_new)
+
+# here we re-group two variables: FUNC_STAT_TRR and FUNC_STAT_TCR, based on their activity level and hospitalization status
+# https://www.communitycarenc.org/media/tool-resource-files/what-does-it-take-qualify-personal-care-services-d.pdf
+# http://www.npcrc.org/files/news/karnofsky_performance_scale.pdf
+
+
+val_old <- c(1,2,3,996,998,2010,2020,2030,2040,2050,2060,2070,2080,2090,2100)
+val_new <- c("ABLE","ASSISTED","DISABLE","OTHER","UNKNOWN","DISABLE","DISABLE","DISABLE","DISABLE","ASSISTED","ASSISTED","ASSISTED","ABLE","ABLE","ABLE")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="FUNC_STAT_TRR",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="FUNC_STAT_TCR",val_old,val_new)
+
+#Due to discrepency, we drop these 2 variables especially the frequencies of natural cause for death are not consistent 
+heart.df.cleaned[c("DEATH_CIRCUM_DON","DEATH_MECH_DON")] <- NULL
+
+```
+## Re-group some categorical variables based on their definitions and distributions
+In this section, we re-group levels in some categroical variables and develop some categorical variables based on their definitions from the code book provided by UNOS and their corresponding distributions. In addition, we drop categorical variables that have more than 90% of observations are NAs, variables that have more than 90% of observations are in the same level (category), and the numerical variables that have more than 30% of  observations are NAs. 
+
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+# We drop variables that are related to identifiers or dates or not related to the goal of the study.
+# We drop maligancy (MALIG_TY,MALIG_TY_TCR) variables because the levels of categories are not distinguishable well and there are too many NAs.
+heart.df.cleaned[ c("WL_ID_CODE", "WL_ORG","INIT_DATE","TX_DATE","CTR_CODE","DATA_TRANSPLANT",
+                   "DATA_WAITLIST","DISTANCE", "DON_RETYP","ECD_DONOR","END_OPO_CTR_CODE","HOME_STATE_DON",
+                   "INIT_OPO_CTR_CODE", "LISTING_CTR_CODE","LOS",
+                   "MALIG_TY","MALIG_TY_TCR","OPO_CTR_CODE","ORGAN","OTH_LIFE_SUP_OSTXT_TCR","OTH_LIFE_SUP_OSTXT_TRR",
+                   "PERM_STATE","PRIOR_CARD_SURG_TYPE_OSTXT_TCR","PRIOR_CARD_SURG_TYPE_OSTXT_TRR","PT_CODE",
+                   "TRR_ID_CODE")] <- NULL
+
+# Nine variables: CMV_DON, EBV_SEROSTATUS, HBV_CORE, HBV_CORE_DON, HBV_SUR_ANTIGEN, HCV_SEROSTATUS, HEP_C_ANTI_DON, HTLV2_OLD_DON, HIV_SEROSTATUS are re-grouped.
+val_old <- c("C","I","N","ND","P","PD","U")
+val_new <- c("UNKNOWN","UNKNOWN","NEGATIVE","UNKNOWN","POSITIVE","UNKNOWN","UNKNOWN")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="CMV_DON",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="EBV_SEROSTATUS",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HBV_CORE",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HBV_CORE_DON",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HBV_SUR_ANTIGEN",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HCV_SEROSTATUS",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HEP_C_ANTI_DON",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HTLV2_OLD_DON",val_old,val_new)
+
+# In the code book, the variable HIV_SEROSTATUS didn't specify the SAS ANALYSIS FORMAT, however, after checking it's values we believe it also uses SERSTAT. 
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HIV_SEROSTATUS",val_old,val_new)
+
+# Here the NA equivalent characters are changed to NA
+{
+  NA_cells <- c(""," ","U")
+  
+  for(i in 1:length(NA_cells)){
+    heart.df.cleaned[heart.df.cleaned == NA_cells[i]] <- NA
+    gc()}
+}
+
+# Two variables: BRONCHO_LT_DON & BRONCHO_RT_DON are re-grouped.
+val_old <- c(1,2,3,4,5,6,7,998)
+val_new <- c("N","NORMAL","ABNORMAL","ABNORMAL","ABNORMAL","ABNORMAL","OTHER","UNKNOWN")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="BRONCHO_LT_DON",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="BRONCHO_RT_DON",val_old,val_new)
+
+
+# The variable: CHEST_XRAY_DON is re-grouped.
+val_old <- c(0,1,2,3,4,5,998,999)
+val_new <- c("UNKNOWN","N","NORMAL","ABNORMAL_SINGLE","ABNORMAL_SINGLE","ABNORMAL_BOTH","UNKNOWN","UNKNOWN")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="CHEST_XRAY_DON",val_old,val_new)
+
+
+# The variable: CORONARY_ANGIO is re-grouped.  
+val_old <- c(1,2,3)
+val_new <- c("N", "Y_NORMAL","Y_ABNORMAL")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="CORONARY_ANGIO",val_old,val_new)
+
+# Two variable: HIST_DIABETES_DON and HYPERTENS_DUR_DON are re-grouped.
+val_old <- c(1,2,3,4,5,998)
+val_new <- c("N","Y","Y","Y","Y","UNKNOWN")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HIST_DIABETES_DON",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="HYPERTENS_DUR_DON",val_old,val_new)
+
+# Two variables: END_STAT, INIT_STAT are re-grouped.
+# although 2099 has low frequeency we do not merge based on the literature: Huang, Edmund, et al. "Incidence of conversion to active waitlist status among temporarily inactive obese renal transplant candidates, Transplantation 98.2 (2014): 177-186." 
+val_old <- c(1010, 1020, 1030, 1090, 1999,2010,2020,2030,2090,2999,7010,7999)
+val_new <- c("ONE","ONE","TWO","ONE","TEMPORARILY_INACTIVE","ONE","ONE","TWO","ONE","TEMPORARILY_INACTIVE","ACTIVE","TEMPORARILY_INACTIVE")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="END_STAT",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="INIT_STAT",val_old,val_new)
+
+# The variable: LAST_INACT_REASON definition is re-grouped
+# We got its definition from: https://www.srtr.org/requesting-srtr-data/saf-data-dictionary/
+# 1: Candidate cannot be contacted
+# 2: Candidate choice
+# 3: Candidate work-up incomplete
+# 4: Insurance issues
+# 5: Medical non-compliance
+# 6: Inappropriate substance use
+# 7: Temporarily too sick
+# 8: Temporarily too well
+# 9: Weight currently inappropriate for transplant
+# 10: TX'ed - removal pending UNET data correction
+# 11: Inactivation due to VAD implantation and/or VAD complication
+# 12: TX Pending
+# 13: Physician/Surgeon unavailable
+# 14: Candidate for living donor transplant only
+# We regroup this variable based on if it's inactive due to health issues
+
+val_old <- seq(1,14)
+val_new <- c("OTHER", "OTHER","OTHER","OTHER","OTHER","OTHER","HEALTH","OTHER","HEALTH","OTHER","HEALTH","OTHER","OTHER","OTHER")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="LAST_INACT_REASON",val_old,val_new)
+
+# The variable: NUM_PREV_TX is re-grouped.
+# later we regroup this variable.
+val_old <- seq(0,10) 
+val_new <- c("ZERO", "MORE", "MORE", "MORE", "MORE", "MORE", "MORE", "MORE", "MORE", "MORE", "MORE")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="NUM_PREV_TX",val_old,val_new)
+
+# Two variables: PRIOR_CARD_SURG_TYPE_TCR and PRIOR_CARD_SURG_TYPE_TRR are re-grouped.
+#search for procurement in this form: All_Forms_eg_RH.pdf
+# CABG: Coronary artery bypass graft
+
+val_old <- seq(1,31)
+val_new <- c("CABG_ONLY","VALVE_ONLY", "MULTIPLE","OTHER", "MULTIPLE","MULTIPLE", "MULTIPLE","OTHER", "MULTIPLE","MULTIPLE",
+             "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE", "MULTIPLE","OTHER", "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE",
+         "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE", "MULTIPLE","MULTIPLE", "MULTIPLE")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PRIOR_CARD_SURG_TYPE_TCR",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PRIOR_CARD_SURG_TYPE_TRR",val_old,val_new)
+
+# We changed the following medicines to "HEPARIN", "ANCEF", "DOPAMINE", "ZOSYN" since these are the most repeted medicines.
+
+temp <- heart.df.cleaned[c("PT_OTH1_OSTXT_DON", "PT_OTH2_OSTXT_DON","PT_OTH3_OSTXT_DON", "PT_OTH4_OSTXT_DON")]
+new_vars <- data.frame(matrix(NA, ncol=4, nrow=nrow(heart.df.cleaned)))
+colnames(new_vars) <- c("HEPARIN","ANCEF","DOPAMINE","ZOSYN")
+
+temp <- as.data.frame(apply(temp, 2, function(x) gsub("^$| ^", NA, x)), stringsAsFactors=FALSE)
+
+for (i in 1:ncol(new_vars)){
+new_vars[,i] <- apply(temp, 1, function(x) detect_terms(x, colnames(new_vars)[i]))
+}
+
+# we remove PT_OTH1_OSTXT_DON,PT_OTH2_OSTXT_DON,PT_OTH3_OSTXT_DON,PT_OTH4_OSTXT_DON and use the four variables: HEPARIN, ANCEF, DOPAMINE, ZOSYN we just create. 
+heart.df.cleaned[c("PT_OTH1_OSTXT_DON","PT_OTH2_OSTXT_DON","PT_OTH3_OSTXT_DON","PT_OTH4_OSTXT_DON")]<-NULL
+heart.df.cleaned<-cbind(heart.df.cleaned,new_vars)
+
+rm(list=c("new_vars")) #remove the unnecessary object
+
+# The variable: STERNOTOMY_TRR is re-grouped.The definition is based on pediatric TRR
+val_old <- c(1,2,3,998)
+val_new <- c("ONE", "MORE","MORE", "UNKNOWN")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="STERNOTOMY_TRR",val_old,val_new)
+
+# We drop the variable: TX_YEAR from dataset since we want to have a more versatile model
+heart.df.cleaned$TX_YEAR<-NULL
+
+
+# The variable: ABO_MAT is re-grouped. 
+val_old <- c(1,2,3) 
+val_new <- c("IDENTICAL", "NOT_IDENTICAL", "NOT_IDENTICAL")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="ABO_MAT",val_old,val_new)
+
+# The variable: AMIS, BMIS, AND DRMIS are re-grouped. 
+val_old <- c(0,1,2) 
+val_new <- c("NO_MISMATCH", "ONE_MISMATCHED", "TWO_MISMATCHED")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="AMIS",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="BMIS",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="DRMIS",val_old,val_new)
+
+# The variable: INOTROPES_TCR, INOTROPES_TRR, OTHER_INF_DON, AND PULM_INF_DON are re-grouped.
+val_old <- c(0,1) 
+val_new <- c("N", "Y")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="INOTROPES_TCR",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="INOTROPES_TRR",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="OTHER_INF_DON",val_old,val_new)
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="PULM_INF_DON",val_old,val_new)
+
+
+# The variable: MED_COND_TRR are re-grouped.
+val_old <- c(1,2,3) 
+val_new <- c("ICU_HOSPITALIZED", "HOSPITALIZED","NOT_HOSPITALIZED")
+heart.df.cleaned <- cat_changer(heart.df.cleaned,var="MED_COND_TRR",val_old,val_new)
+
+
+#===================================================================
+# Here we drop columns that 90% of their data is NA.
+NA_Col_Rate <- col_missing_function(heart.df.cleaned)
+NA_Col_Rate$varname <- rownames(NA_Col_Rate)
+NA_Col_Rate <- NA_Col_Rate[which(NA_Col_Rate$na_count_col>0.9),]
+NA_Col_Rate <- NA_Col_Rate$varname
+heart.df.cleaned[NA_Col_Rate] <- NULL
+
+#===================================================================
+# Here we drop variables that have more than 90% of the observations in one level / category.
+cat_dis <- vector(mode="numeric", length=ncol(heart.df.cleaned))
+for(i in 1:ncol(heart.df.cleaned)){
+struct <- as.data.frame(table(heart.df.cleaned[i]))
+if(nrow(struct)>0){
+max_cat <- max(struct$Freq)
+all_freq <- sum(struct$Freq)
+if((max_cat/all_freq)>0.90) cat_dis[i] <- 1}
+}
+sum(cat_dis==1)
+heart.df.cleaned[names(heart.df.cleaned[(cat_dis==1)])]<-NULL
+#===================================================================
+
+# Here we define categorical and numerical variables
+initial_num <- heart.form$VARIABLE.NAME[which(heart.form$INTERPRETATION_TYPE=="NUM")]
+mutated_num <- c("BMI_CHNG" ,"WGT_CHNG" ,"HGT_CHNG" ,"AGE_MAT","BMI_MAT","PVR","ECMO")
+pool_num <- c(as.character(initial_num),mutated_num)
+
+# the numerical variables in the cleaned dataset are saved in pool_num_clean
+pool_num_clean <- pool_num[which(pool_num %in% names(heart.df.cleaned))]
+
+initial_char <- heart.form$VARIABLE.NAME[which(heart.form$INTERPRETATION_TYPE=="CHAR")] 
+mutated_char <- c("GENDER_MAT","ETH_MAT" ,"CARD_SURG" ,"HEPARIN" ,"ANCEF" ,"DOPAMINE","ZOSYN")
+pool_char <- c(as.character(initial_char),mutated_char)
+
+# the categorical variables in the cleaned dataset are saved in pool_char_clean
+pool_char_clean <- pool_char[which(pool_char %in% names(heart.df.cleaned))]
+
+#=================================================================== 
+# Here we drop the numerical variables that more than 30% of the observations are NA.
+# we decided not to impute numerical values, so a more conservative approach is adopted.
+
+NA_Col_Rate <- col_missing_function(heart.df.cleaned[pool_num_clean])
+NA_Col_Rate$varname <- rownames(NA_Col_Rate)
+NA_Col_Rate <- NA_Col_Rate[which(NA_Col_Rate$na_count_col>0.3),]
+NA_Col_Rate <- NA_Col_Rate$varname
+heart.df.cleaned[NA_Col_Rate] <- NULL
+
+# changing category of "NUM_PREV_TX" from numerical to categorical
+pool_num<-pool_num[!pool_num %in% "NUM_PREV_TX"]
+pool_char<-c(pool_char,"NUM_PREV_TX")
+
+
+#####################
+
+# We updated numerical and categorical variables used here:
+pool_num_clean <- pool_num[which(pool_num %in% names(heart.df.cleaned))] 
+pool_char_clean <- pool_char[which(pool_char %in% names(heart.df.cleaned))]
+
+#removing the extra created data
+rm(list = "temp")
+
+```
+<br />
+<br />
+
+<!-- **Here are a report about the remaining variables (discarded means irrelevant/not interesting variables)** -->
+```{r , message=FALSE, cache=TRUE, error=FALSE, echo=FALSE}
+rem_type2 <- as.data.frame(table(heart.form[which(heart.form$VARIABLE.NAME %in% names(heart.df.cleaned)), "INTERPRETATION_TYPE"]))
+names(rem_type2) <- c("Variable Type","Frequency")
+rem_type2$`Variable Type` <- c("Categorical","Initially Discarded","Date","Numerical")
+
+cat("here is the brand new variables that we developed from the dataset")
+str(heart.df.cleaned[,c("PVR","BMI_CHNG","WGT_CHNG","HGT_CHNG","AGE_MAT","BMI_MAT","GENDER_MAT","ETH_MAT","CARD_SURG","HEPARIN", "ANCEF", "DOPAMINE", "ZOSYN")]) 
+
+cat("Number of patients: ",nrow(heart.df.cleaned),"& Number of variables: ",ncol(heart.df.cleaned))
+
+# excluding patients that we do not know their survival time
+heart.df.cleaned<-heart.df.cleaned[complete.cases(heart.df.cleaned$GTIME),]
+  p_unit <- 1
+  predict_length <- 365
+heart.df.cleaned$year1 <- sapply(seq(1:nrow(heart.df.cleaned)), function(x, df) class_generator_bino(df$GSTATUS[x], df$GTIME[x], p_unit, predict_length), df=heart.df.cleaned)
+
+heart.df.cleaned<-heart.df.cleaned[complete.cases(heart.df.cleaned$year1),]
+
+# now there is no need for "GSTaTUS" and "GTIME"
+heart.df.cleaned[c("GSTATUS" , "GTIME")]<-NULL
+
+pool_num_clean<-pool_num_clean[!pool_num_clean %in% "GTIME"]
+pool_char_clean[pool_char_clean %in% "GSTATUS"]<-"year1"
+
+
+heart.df.cleaned.copy<-heart.df.cleaned
+
+#this list will keep dataframes of the next scenarios:
+dfs<-list()
+
+#save1
+
+
+```
+## treating missing values for numerical and categorical variables
+## One-hot encoding algorithm is applied
+for numerical variable we either drop numerical observations or impute by median (2 conditions), for categorical variables we could impute missing values by mode, dropping the observation, impute by UNKNOWN level, or impute as missing level (4 conditions) then in total we have 2*4 = 8 diffenet conditions
+##1st scenario: NA values of categorical variables are unknown and for numrical variables we drop the observation**. 
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+# We dropped the numerical NAs and replaced the NA (missing values) in categorical variables to "UNKNOWN"
+
+heart.df.cleaned<-heart.df.cleaned.copy
+#dropping observations with numerical NAs
+heart.df.cleaned <- heart.df.cleaned[complete.cases(heart.df.cleaned[pool_num_clean]),]
+
+heart.df.cleaned_char <- heart.df.cleaned[pool_char_clean]
+heart.df.cleaned_char[is.na(heart.df.cleaned_char)] <- "UNKNOWN"
+heart.df.cleaned_num <- heart.df.cleaned[pool_num_clean]
+
+df.un.dr<-cbind(heart.df.cleaned_char,heart.df.cleaned_num,heart.df.cleaned["ID"])
+
+
+#Make sure the type of each variable is recorded corrctly
+for(i in names(df.un.dr)){
+  if(i %in% pool_char_clean){df.un.dr[i] <- as.character(df.un.dr[,i])}
+  if(i %in% pool_num_clean){df.un.dr[i] <- as.numeric(df.un.dr[,i])}
+}
+
+
+dfs[[1]]<-df.un.dr
+
+# remove unnecessary datasets
+rm(list=c("heart.df.cleaned_char","heart.df.cleaned_num","df.un.dr"))
+
+#scenario1
+```
+
+##2nd scenario: NA values of categorical variables are missing and for numrical variables we drop the observation**. 
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+
+heart.df.cleaned<-heart.df.cleaned.copy
+#dropping observations with numerical NAs
+heart.df.cleaned <- heart.df.cleaned[complete.cases(heart.df.cleaned[pool_num_clean]),]
+
+heart.df.cleaned_char <- heart.df.cleaned[pool_char_clean]
+heart.df.cleaned_char[is.na(heart.df.cleaned_char)] <- "MISSING"
+heart.df.cleaned_num <- heart.df.cleaned[pool_num_clean]
+
+df.mi.dr<-cbind(heart.df.cleaned_char,heart.df.cleaned_num,heart.df.cleaned["ID"])
+
+
+#Make sure the type of each variable is recorded corrctly
+for(i in names(df.mi.dr)){
+  if(i %in% pool_char_clean){df.mi.dr[i] <- as.character(df.mi.dr[,i])}
+  if(i %in% pool_num_clean){df.mi.dr[i] <- as.numeric(df.mi.dr[,i])}
+}
+
+dfs[[2]]<-df.mi.dr
+
+# remove unnecessary datasets
+rm(list=c("heart.df.cleaned_char","heart.df.cleaned_num","df.mi.dr"))
+
+#scenario2
+```
+
+##3rd scenario: NA values of categorical variables are imputed by mode and for numrical variables we drop the observation**. 
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+
+heart.df.cleaned<-heart.df.cleaned.copy
+#dropping observations with numerical NAs
+heart.df.cleaned <- heart.df.cleaned[complete.cases(heart.df.cleaned[pool_num_clean]),]
+
+heart.df.cleaned_char <- heart.df.cleaned[pool_char_clean]
+
+
+char_mode<-as.data.frame(apply(heart.df.cleaned_char,2,cahrmode) )
+
+for(j in pool_char_clean){
+  heart.df.cleaned_char[is.na(heart.df.cleaned_char[j]),j]<-char_mode[j,1]
+}
+
+heart.df.cleaned_num <- heart.df.cleaned[pool_num_clean]
+
+df.mo.dr<-cbind(heart.df.cleaned_char,heart.df.cleaned_num,heart.df.cleaned["ID"])
+
+
+#Make sure the type of each variable is recorded corrctly
+for(i in names(df.mo.dr)){
+  if(i %in% pool_char_clean){df.mo.dr[i] <- as.character(df.mo.dr[,i])}
+  if(i %in% pool_num_clean){df.mo.dr[i] <- as.numeric(df.mo.dr[,i])}
+}
+
+dfs[[3]]<-df.mo.dr
+
+# remove unnecessary datasets
+rm(list=c("heart.df.cleaned_char","heart.df.cleaned_num","df.mo.dr"))
+
+
+#scenario3
+```
+
+##4th scenario: NA values of categorical variables are dropped and for numrical variables we drop the observation, too**. 
+If we drop simply, this is not practical because we lost all the observations.
+We try to maximize remaining cells through a heuristic algorithm which through a loop, we drop rows and columns based on 
+the maximum emptiness until just non-empty cells are remained
+
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+
+heart.df.cleaned<-heart.df.cleaned.copy
+#dropping observations with  NAs
+# "FUNC_STAT_TRR" and "FUNC_STAT_TCR" are widely cited in the literature, then we want to keep then through the
+# heuristic approach of dropping rows and column
+obj_data <- table_cleaner(heart.df.cleaned,1,"ID","year1",c("KEEP_ALL"))
+
+
+
+df.dr.dr<-obj_data$data
+
+
+#Make sure the type of each variable is recorded corrctly
+for(i in names(df.dr.dr)){
+  if(i %in% pool_char_clean){df.dr.dr[i] <- as.character(df.dr.dr[,i])}
+  if(i %in% pool_num_clean){df.dr.dr[i] <- as.numeric(df.dr.dr[,i])}
+}
+
+dfs[[4]]<-df.dr.dr
+
+# remove unnecessary datasets
+rm(list=c("df.dr.dr"))
+
+#scenario4
+
+```
+
+##5th scenario: NA values of categorical variables are unknown and for numrical variables are imputed by median**. 
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+
+# We dropped the numerical NAs and replaced the NA (missing values) in categorical variables to "UNKNOWN"
+
+heart.df.cleaned<-heart.df.cleaned.copy
+#dropping observations with numerical NAs
+heart.df.cleaned_num <- heart.df.cleaned[pool_num_clean]
+
+num_med<-as.data.frame(apply(heart.df.cleaned_num,2,function(x) median(x,na.rm = TRUE) ))
+
+
+for(j in pool_num_clean){
+  heart.df.cleaned_num[is.na(heart.df.cleaned_num[j]),j]<-num_med[j,1]
+}
+
+
+
+heart.df.cleaned_char <- heart.df.cleaned[pool_char_clean]
+heart.df.cleaned_char[is.na(heart.df.cleaned_char)] <- "UNKNOWN"
+
+
+df.un.med<-cbind(heart.df.cleaned_char,heart.df.cleaned_num,heart.df.cleaned["ID"])
+
+
+
+#Make sure the type of each variable is recorded corrctly
+for(i in names(df.un.med)){
+  if(i %in% pool_char_clean){df.un.med[i] <- as.character(df.un.med[,i])}
+  if(i %in% pool_num_clean){df.un.med[i] <- as.numeric(df.un.med[,i])}
+}
+
+dfs[[5]]<-df.un.med
+# remove unnecessary datasets
+rm(list=c("heart.df.cleaned_char","heart.df.cleaned_num","df.un.med"))
+
+#scenario5
+```
+
+##6th scenario: NA values of categorical variables are imputed by missing and for numrical variables are imputed by median**. 
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+
+# We dropped the numerical NAs and replaced the NA (missing values) in categorical variables to "UNKNOWN"
+
+heart.df.cleaned<-heart.df.cleaned.copy
+#dropping observations with numerical NAs
+heart.df.cleaned_num <- heart.df.cleaned[pool_num_clean]
+
+num_med<-as.data.frame(apply(heart.df.cleaned_num,2,function(x) median(x,na.rm = TRUE) ))
+
+
+for(j in pool_num_clean){
+  heart.df.cleaned_num[is.na(heart.df.cleaned_num[j]),j]<-num_med[j,1]
+}
+
+
+
+heart.df.cleaned_char <- heart.df.cleaned[pool_char_clean]
+heart.df.cleaned_char[is.na(heart.df.cleaned_char)] <- "MISSING"
+
+
+df.mi.med<-cbind(heart.df.cleaned_char,heart.df.cleaned_num,heart.df.cleaned["ID"])
+
+
+#Make sure the type of each variable is recorded corrctly
+for(i in names(df.mi.med)){
+  if(i %in% pool_char_clean){df.mi.med[i] <- as.character(df.mi.med[,i])}
+  if(i %in% pool_num_clean){df.mi.med[i] <- as.numeric(df.mi.med[,i])}
+}
+
+dfs[[6]]<-df.mi.med
+
+# remove unnecessary datasets
+rm(list=c("heart.df.cleaned_char","heart.df.cleaned_num","df.mi.med"))
+
+#scenario6
+```
+
+
+##7th scenario: NA values of categorical variables are imputed bt mode and for numrical variables are imputed by median**. 
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+
+# We dropped the numerical NAs and replaced the NA (missing values) in categorical variables to "UNKNOWN"
+
+heart.df.cleaned<-heart.df.cleaned.copy
+#dropping observations with numerical NAs
+heart.df.cleaned_num <- heart.df.cleaned[pool_num_clean]
+
+num_med<-as.data.frame(apply(heart.df.cleaned_num,2,function(x) median(x,na.rm = TRUE) ))
+
+
+for(j in pool_num_clean){
+  heart.df.cleaned_num[is.na(heart.df.cleaned_num[j]),j]<-num_med[j,1]
+}
+
+heart.df.cleaned_char <- heart.df.cleaned[pool_char_clean]
+char_mode<-as.data.frame(apply(heart.df.cleaned_char,2,cahrmode) )
+
+for(j in pool_char_clean){
+  heart.df.cleaned_char[is.na(heart.df.cleaned_char[j]),j]<-char_mode[j,1]
+}
+
+
+df.mo.med<-cbind(heart.df.cleaned_char,heart.df.cleaned_num,heart.df.cleaned["ID"])
+
+
+#Make sure the type of each variable is recorded corrctly
+for(i in names(df.mo.med)){
+  if(i %in% pool_char_clean){df.mo.med[i] <- as.character(df.mo.med[,i])}
+  if(i %in% pool_num_clean){df.mo.med[i] <- as.numeric(df.mo.med[,i])}
+}
+
+dfs[[7]]<-df.mo.med
+
+# remove unnecessary datasets
+rm(list=c("heart.df.cleaned_char","heart.df.cleaned_num","df.mo.med"))
+
+#scenario7
+```
+
+
+##8th imputation scenario: NA values of categorical variables are dropped and for numrical variables are imputed by median**. 
+If we drop observations that their categorical variables are NA, we loose all the observations.We try to maximize remaining cells through a heuristic algorithm which through a loop, we drop rows and columns based on the maximum emptiness until just non-empty cells are remained
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+
+# We dropped the numerical NAs and replaced the NA (missing values) in categorical variables to "UNKNOWN"
+
+heart.df.cleaned<-heart.df.cleaned.copy
+
+
+heart.df.cleaned_num <- heart.df.cleaned[pool_num_clean]
+
+num_med<-as.data.frame(apply(heart.df.cleaned_num,2,function(x) median(x,na.rm = TRUE) ))
+
+
+for(j in pool_num_clean){
+  heart.df.cleaned_num[is.na(heart.df.cleaned_num[j]),j]<-num_med[j,1]
+}
+
+heart.df.cleaned_char <- heart.df.cleaned[pool_char_clean]
+
+
+
+df.dr.med<-cbind(heart.df.cleaned_char,heart.df.cleaned_num,heart.df.cleaned["ID"])
+
+
+#dropping observations with  NAs through the huristic algorithm
+# "FUNC_STAT_TRR" and "FUNC_STAT_TCR" are widely cited in the literature, then we want to keep then through the
+# heuristic approach of dropping rows and column
+obj_data2 <- table_cleaner(df.dr.med,1,"ID","year1",c("KEEP_ALL"))
+
+
+df.dr.med<-obj_data2$data
+
+
+
+#Make sure the type of each variable is recorded corrctly
+for(i in names(df.dr.med)){
+  if(i %in% pool_char_clean){df.dr.med[i] <- as.character(df.dr.med[,i])}
+  if(i %in% pool_num_clean){df.dr.med[i] <- as.numeric(df.dr.med[,i])}
+}
+
+dfs[[8]]<-df.dr.med
+
+# remove unnecessary datasets
+rm(list=c("df.dr.med"))
+
+#scenario8
+rm(list=c("heart.df.cleaned_char","heart.df.cleaned_num",
+          "heart.df.cleaned.copy"))
+
+#save2
+```
+
+## Enconding the variables and identifying train and test sets 
+In this snippet, we encode the driven data from each scenario in two ways of hard enconding and label enconding (8scenarios x 2 encondings =16 scenarios). Also, holdout IDs for distinguishing between train and holdout sets are identified.
+
+```{r , message=FALSE, cache=TRUE, error=FALSE}
+# We keep IDs
+## identifying test IDs from cleaned data
+idenx_holdout <- holdout_index(heart.df.cleaned$ID, 2019)
+
+cat_vars <- setdiff(pool_char_clean, "year1")
+
+## encoding (method = c("numeric", "factor"))
+df_num <- lapply(dfs, function(x) encode_cat(x,cat_vars,"numeric"))
+df_cat <- lapply(dfs, function(x) encode_cat(x,cat_vars,"factor"))
+All_data <- c(df_num, df_cat)
+
+## assign names for each component in the list
+names(All_data) <- c(paste0("NUM_",1:8), paste0("CAT_",1:8))
+
+## remove unused objects
+rm(dfs,df_num,df_cat)
+
+#save3
+```
+
+# Variable Selection 
+In our study, three feature selection methods are adopted: Random Forest, Fast correlation based feature selection, and LASSO. This section summarizes the results from these variable selection algorithms. In order to use the code we provide here, you will need to have some experience in parallel computation using parSapply() function in the R package: snow. The Random Forest selection algorithm takes lots of time to find important features in the data. The part is conducted on Ohio Supercomputer Center. 
+
+```{r , message=FALSE, eval=FALSE, cache=TRUE, error=FALSE}
+# Here, we use the function parSapply() in snow package to perform the parallel computation for three variable selection algorithms
+
+# for checking the definition of the feature selection algorithms, check this paper:
+# Fonti, Valeria, and Eduard Belitser. "Feature Selection using LASSO."
+# for increasing ram that is dedicated to the next package you may use this command and then
+# specify the dedicated ram memory: options( java.parameters = "-Xmx26g")
+     
+features <- rep(list(NA), 4)
+names(features) <- c("FFS", "LASSO", "RF", "all")
+impute_no <- 16  #from 1 to 16
+
+#=============================================================
+#==============Fast Feature selection
+#=============================================================
+
+features_FFS <- vector(mode="list", impute_no)
+for (i in 1:impute_no){
+  cl <- makeCluster(4, type="SOCK")
+  features_FFS[[i]] <- parSapply(cl, 1:5, select_vars, All_data[[i]], "year1", "FFS", idenx_holdout, 2090)
+  stopCluster(cl)
+}
+
+#=============================================================
+#==============Lasso Feature selection for Binomial TARGETS
+#=============================================================
+
+features_LASSO <- vector(mode="list", impute_no)
+for (i in 1:impute_no){
+  cl <- makeCluster(4, type="SOCK")
+  features_LASSO[[i]] <- parSapply(cl, 1:5, select_vars, All_data[[i]], "year1", "LASSO", idenx_holdout, 2090)
+  stopCluster(cl)
+}
+
+#save4
+#=============================================
+#==============Random Forest Feature Selection
+#=============================================
+
+cl <- makeCluster(4, type="SOCK")
+features$RF <- parSapply(cl, 1:2, RF_features, dfs_dum, dependent="year1", exclud="ID") 
+stopCluster(cl)
+saveRDS(features, paste0(data.path,"DoE_RF12.rds"))
+
+
+RF_6<-RF_features(dfs_dum[[6]],"year1","ID")
+
+save.image(paste0(data.path,"RF_6.RData"))
+
+#The fourth option: We used all varaibles selected from the previous three selection methods
+
+features$all <- sapply(1:11, function(x) all_bin(x,features))
+
+# merge function didn't check duplicates 
+#year 4, 5, 6 has two COD_CAD_DON_HEAD_TRAUMA
+
+```
+
+## Fast Feature Selection {.tabset .tabset-fade}
+Here is the variables selected using the Fast Feature Selection algorithm. 
+
+```{r, echo=FALSE}
+library(DT)
+library(htmltools)
+# we simply select the table, look for the parent container 
+# and remove it from the DOM
+jsc <- 'function(settings, json) { $(this).parents(".datatables").remove(); }'
+datatable(matrix(NA, 2, 2), options = list("initComplete" = JS(jsc)))
+```
+
+
+```{r, message=FALSE, echo=FALSE, error=FALSE}
+features <- readRDS("G:\\Team Drives\\Hamid_Paper_1_ASC\\osc files\\features.rds")
+dt_list <- rep(list(NA),11)
+for (i in 1:11){
+  temp.data <- data.frame(cbind(seq(1,length(features$FFS[[i]][[1]])), as.character(features$FFS[[i]][[1]])))
+  colnames(temp.data) <- c("No", "Variable")
+  dt_list[[i]] <-  datatable(temp.data)
+}
+
+names(dt_list) <- c('Month 1', paste("Year", 1:10))
+```
+
+```{r, results='asis', echo=FALSE}
+for(i in 1:11){
+  h <- names(dt_list)[i]
+  cat("### ", h, '{-}', '\n')
+    cat(paste0('<source> <p><b>', length(features$FFS[[i]][[1]]), ' variables are selected.</b></p> </source>'))
+  print(tagList(dt_list[[h]]))
+  cat('\n\n')
+}
+```
+
+## LASSO Selection Algorithm {.tabset .tabset-fade}
+The variables selected using the LASSO Feature Selection algorithm are reported in the following. 
+
+```{r, echo=FALSE}
+library(DT)
+library(htmltools)
+# we simply select the table, look for the parent container 
+# and remove it from the DOM
+jsc <- 'function(settings, json) { $(this).parents(".datatables").remove(); }'
+datatable(matrix(NA, 2, 2), options = list("initComplete" = JS(jsc)))
+```
+
+
+```{r, message=FALSE, echo=FALSE, error=FALSE}
+dt_list <- rep(list(NA),11)
+for (i in 1:11){
+  temp.data <- data.frame(cbind(seq(1,length(features$LASSO[[i]][[1]])), as.character(features$LASSO[[i]][[1]])))
+  colnames(temp.data) <- c("No", "Variable")
+  dt_list[[i]] <-  datatable(temp.data)
+}
+
+names(dt_list) <- c('Month 1', paste("Year", 1:10))
+```
+
+```{r, results='asis', echo=FALSE}
+for(i in 1:11){
+  h <- names(dt_list)[i]
+  cat("### ", h, '{-}', '\n')
+  cat(paste0('<source> <p><b>', length(features$LASSO[[i]][[1]]), ' variables are selected.</b></p> </source>'))
+  print(tagList(dt_list[[h]]))
+  cat('\n\n')
+}
+```
+
+## Random Forest Based Selection {.tabset .tabset-fade}
+The variables selected in this subsection are from the Random Forest algorithm. The Boruta() function in the R package Boruta is used.
+
+```{r, echo=FALSE}
+library(DT)
+library(htmltools)
+# we simply select the table, look for the parent container 
+# and remove it from the DOM
+jsc <- 'function(settings, json) { $(this).parents(".datatables").remove(); }'
+datatable(matrix(NA, 2, 2), options = list("initComplete" = JS(jsc)))
+```
+
+
+```{r, message=FALSE, echo=FALSE, error=FALSE}
+dt_list <- rep(list(NA),11)
+for (i in 1:11){
+  temp.data <- data.frame(cbind(seq(1,length(features$RF[[i]][[1]])), as.character(features$RF[[i]][[1]])))
+  colnames(temp.data) <- c("No", "Variable")
+  dt_list[[i]] <-  datatable(temp.data)
+}
+
+names(dt_list) <- c('Month 1', paste("Year", 1:10))
+```
+
+```{r, results='asis', echo=FALSE}
+for(i in 1:11){
+  h <- names(dt_list)[i]
+  cat("### ", h, '{-}', '\n')
+  cat(paste0('<source> <p><b>', length(features$RF[[i]][[1]]), ' variables are selected.</b></p> </source>'))
+  print(tagList(dt_list[[h]]))
+  cat('\n\n')
+}
+```
+
+## All Variables Selected {.tabset .tabset-fade}
+We combine all variables selected from the above three selection algorithms. 
+
+```{r, echo=FALSE}
+library(DT)
+library(htmltools)
+# we simply select the table, look for the parent container 
+# and remove it from the DOM
+jsc <- 'function(settings, json) { $(this).parents(".datatables").remove(); }'
+datatable(matrix(NA, 2, 2), options = list("initComplete" = JS(jsc)))
+```
+
+```{r, message=FALSE, echo=FALSE, error=FALSE}
+dt_list <- rep(list(NA),11)
+for (i in 1:11){
+  temp.data <- data.frame(cbind(seq(1,length(features$all[[i]][[1]])), as.character(features$all[[i]][[1]])))
+  colnames(temp.data) <- c("No", "Variable")
+  dt_list[[i]] <-  datatable(temp.data)
+}
+
+names(dt_list) <- c('Month 1', paste("Year", 1:10))
+```
+
+```{r, results='asis', echo=FALSE}
+for(i in 1:11){
+  h <- names(dt_list)[i]
+  cat("### ", h, '{-}', '\n')
+  cat(paste0('<source> <p><b>', length(features$all[[i]][[1]]), ' variables are selected.</b></p> </source>'))
+  print(tagList(dt_list[[h]]))
+  cat('\n\n')
+}
+```
+
+# Statistical Modeling
+In this section, we use the following machine learning algorithms: Logistic Regression, Random Forest, Bagging, Boosting to model the training data and use the holdout dataset corresponding to each year to validate the performance of each model. Here is the outline for the whole procedure. 
+
+1. Apply the random under sampling with replacement algorithm to get a bootstrap sample. This is the "true" training dataset used to train a model
+2. Use variables selected from (a) Fast Feature Selection or (b) LASSO or (c) Random Forest or all varaibles selected from (a-c) and one of the machine learning algorithms mentioned above to train a model 
+3. Calculate AUC value for the bootstrap sample, performance measures (AUC value, Sensitivity, Specificity, Accuracy) for the holdout set, and the predicted survival probabilities for individuals in the holdout dataset
+
+We repeat the above steps (1-3) 500 times to obtain 500 bootstrap samples and the model with the medain AUC value for these samples is the final model used to validate the perfomance on the holdout dataset. The variable **M_AUC_index** records where the median model occurs in each year and allows us to extract the model information without saving 500 models.
+
+**The study in this section was conducted in the Ohio Supercomputer Center using the Batch system: Owens with multi-cores.**
+
+```{r , message=FALSE, eval=FALSE, cache=TRUE, error=FALSE}
+# First, we make sure the type of each variable is correct
+feature_names <- colnames(heart.df.cleaned.dum)
+for (i in 1:length(feature_names)){
+  if (feature_names[i]%in%pool_num_clean){
+    heart.df.cleaned.dum[,feature_names[i]] <- as.numeric(heart.df.cleaned.dum[,feature_names[i]])
+  }else if(feature_names[i]!="ID"){
+    heart.df.cleaned.dum[,feature_names[i]] <- factor(heart.df.cleaned.dum[,feature_names[i]])
+  }
+}
+
+# Create a matrix to save the performance measures (AUC, Sensitivity, Specificity, Accuracy) for the holdout sets
+Performance <- matrix(NA, ncol=11, nrow=4)
+rownames(Performance) <- c("auc","sen","spec","accu")
+colnames(Performance) <- paste("Year", 0:10, sep="")
+
+# Create a matrix to save the survival probabilities for the holdout data 
+# Since our goal is calibrating survival probabilities using isotonic regression, we only save the survival probabilites for individulas whose survival status is known for all years in the holdout sets
+Prob <- matrix(NA, ncol=11, nrow=length(keep_NA$ID_holdout10))
+colnames(Prob) <- paste("Year", 0:10, sep="")
+
+# We recorded patient ID used in the 10th year holdout data
+ID10_index <- which(heart.df.cleaned.dum$ID%in%keep_NA$ID_holdout10)
+ID10 <- heart.df.cleaned.dum$ID[ID10_index]
+
+# S is used to save the total number of models created for each time point
+S <- rep(NA, ncol=11)
+
+# M_AUC is used to save the median AUC value for each time point
+M_AUC <- rep(NA, ncol=11)
+
+# Save all survival probabilities for holdout sets, so we can use this object to plot ROC curves 
+P <- rep(list(NA), 11)
+
+# Index is used to save where the median model occurs
+Index <- rep(NA, ncol=11)
+
+# The following packages are used for parallel computing
+library(Rmpi)
+library(snow)
+
+# Set up a timer to track the time used
+time.begin <- proc.time()[3]
+
+# assign cores used in the parallel computing
+workers <- as.numeric(Sys.getenv(c("PBS_NP"))) - 1
+cl1 <- makeCluster(workers,"MPI")
+total_samples <- 500
+
+for (time_point in 0:10){
+  # assign random seeds
+  assigned_seed <- 2018 + 500*time_point  
+  
+  # get variables ued from one selection algorithm
+  variables <- c(as.character(features$LASSO[[(time_point+1)]][[1]]), paste("year",time_point,sep=""))
+  
+  # get the names for the training and holdout data patient IDs
+  ID_train_name <- paste("ID_train",time_point,sep="")
+  ID_holdout_name <- paste("ID_holdout",time_point,sep="")
+  
+  # get the training and holdout data 
+  traindata <- heart.df.cleaned.dum[heart.df.cleaned.dum$ID %in% keep_NA[[ID_train_name]], variables]
+  hold_out <- heart.df.cleaned.dum[heart.df.cleaned.dum$ID %in% keep_NA[[ID_holdout_name]], variables]
+  
+  # get the response variable and the formula used in the r function train() in the package: caret
+  TARGET <- variables[length(variables)]
+  formul <- as.formula(paste(TARGET,"~.",sep=""))
+  
+  # we perform the parallel computing here to obtain 500 bootstrap samples, corresponding models and evaluate performance of these models
+  # the usage of the function pred_func() can be found in the file: isotonic_paper_functions.R
+  Allsamples <- parSapply(cl1, 1:total_samples, pred_func, traindata, hold_out, TARGET, formul, pool_num_clean, assigned_seed, "log", 5,1) 
+  
+  # check if no result is returned and revmoe NA from the list
+  na_index <- which(is.na(unlist(Allsamples["AUC",])))
+  if (length(na_index)!=0){
+    Allsamples <- Allsamples[,-na_index]
+    total_samples <- ncol(Allsamples)
+  }
+  
+  # get all auc values from all samples & find the model with the median auc value
+  All_AUC <- sort.int(unlist(Allsamples["AUC",]), index.return = T) 
+  M_AUC[(time_point+1)] <- All_AUC$x[(floor((total_samples+1)/2))]
+  M_AUC_index <- All_AUC$ix[(floor((total_samples+1)/2))]
+  
+  # recored the performance measures for the median model
+  Performance[,(time_point+1)] <- as.matrix(unname(Allsamples[1,M_AUC_index]$`Performance`))
+  
+  # record the predicted survival probabilities for patients in the holdout data set
+  # first column: True status (One: death; Two: survival); 2nd column: predicted status; 3rd column: predicted survival probabilities  
+  P[[(time_point+1)]] <- Allsamples[2,M_AUC_index]$`Predicted`
+  
+  # record the survival probabilities for ONLY patients in the 10th year holdout data set (This is used later to demonstrate how isotonic regression can be used to calibrate probabilities over time.)
+  temp_prob <- data.frame(cbind(Allsamples[2,M_AUC_index]$`Predicted`$Probability, ID=current_ID), stringsAsFactors=F)
+  temp_prob <- temp_prob[order(as.numeric(temp_prob$ID)),]
+  Prob[,(time_point+1)] <- as.numeric(temp_prob$V1[temp_prob$ID %in% ID10])
+  
+  # record total number of samples used for random under sampling
+  S[(time_point+1)] <- total_samples
+  
+  # recode the index of the median model
+  Index[(time_point+1)] <- M_AUC_index
+  rm(Allsamples)
+}
+
+stopCluster(cl1)
+time.end <- proc.time()[3] - time.begin
+paste("It took", time.end, "seconds to run the program.")
+
+Performance <- rbind(Performance, S)
+
+# we export the result
+saveRDS(P, file="ROC_log.rds")
+write.csv(Performance, "Performance_LASSO_log.csv")
+write.csv(Prob, "/users/PNS0458/uda0317/FadelandHemid/Result/Probability_LASSO_rf_bag.csv", row.names = F)
+
+mpi.quit()
+```
+
+# Calibrating Survival Probabilities
+In this section, Isotonic regression is used to calibrate survival probabilities for each patient whose survival status is available in the 10th year after the transplant in the test data set. 
+
+```{r, message=FALSE, eval=FALSE, cache=TRUE, error=FALSE}
+Prob <- read.csv("Probability_LASSO_log.csv")
+survivals <- matrix(NA, ncol=11, nrow=nrow(Prob))
+survival_Probability <- matrix(NA, ncol=11, nrow=nrow(Prob))
+for (i in 1:11){
+  survivals[,i] <- Prob[,(12-i)]
+} 
+
+# apply isotonic regression to the probability matrix
+survivals_isotonic <- t(apply(survivals, 1, function(x) isoreg(x)$yf))
+
+for (i in 1:11){
+  survival_Probability[,i] <- survivals_isotonic[,(12-i)]
+} 
+
+colnames(survival_Probability) <- colnames(Prob)
+# the survival probability matrix after isotonic regression is applied
+survival_Probability <- as.data.frame(survival_Probability)
+```
+
+
+
+# Results
+In this section, we report the results obtained.
+
+## Survival Probabilites for Random Sample Patients before and after Isotonic Regression
+
+```{r chunk-label, echo=FALSE, fig.show='animate', ffmpeg.format='gif', dev='jpeg', interval=2, fig.width = 6.5, fig.height=6.5, fig.align='center'}
+survival_Probability <- readRDS("G:/Team Drives/Hamid_Paper_1_ASC/final models/Survival_Probability.rds")
+
+for (i in 1:30){
+  par(xpd=NA, oma=c(4,1,1,1))
+  index <- sample(1:nrow(survival_Probability$Before), 1, replace=T)
+  
+  plot(seq(1,10), survival_Probability$After[index,2:11], type="b", pch=21, lwd=3, ylim=c(0,1), xlab="Year", ylab="Survival Probability", main=paste("Sample Patient"), xaxt = "n",cex.lab=1.5, cex.axis=1.5, cex.main=1.5, col="#00008B")
+  axis(1, at=seq(1,10), cex.axis=1.5)
+  lines(seq(1,10), survival_Probability$Before[index,2:11],type="b", pch=1, lwd=3, col="#87CEFA")
+  
+legend("bottom", legend=c("Before Isotonic Regression", "After Isotonic Regression"), inset=c(0,-.3), horiz = TRUE, pch=c(1, 21), col=c("#87CEFA", "#00008B"), bty = "n", lwd=3, cex=1.25, xjust=.5, yjust=2)
+  
+}
+```
+
+## ROC Curves {.tabset .tabset-fade}
+
+```{r echo=FALSE, out.width = '100%', fig.align='right', results='asis'}
+for (i in 1:11){
+  if(i==1){
+    cat('### ','Month 1',"{-}",' \n')
+    cat('<source><center><img width="75%" src="G:\\Team Drives\\Hamid_Paper_1_ASC\\Figures\\rmarkdown figures\\Month_1_ROC_curve.jpeg"/></center></source>')
+    cat('\n \n')
+  }else{
+    cat('### ', paste("Year", (i-1)),"{-}",' \n')
+    cat(paste0('<source><center><img width="75%" src="G:\\Team Drives\\Hamid_Paper_1_ASC\\Figures\\rmarkdown figures\\Year_',(i-1),'_ROC_curve.jpeg"/></center></source>'))
+    cat('\n \n')
+  }
+}
+  
+```
+
+## Survival Probability before and afer Applying Isotonic Regression {.tabset .tabset-fade}
+
+In this section, we exam how good our models are by checking the survival probability before and after applying Isotonic Regression.
+
+```{r , message=FALSE, echo=FALSE, cache=TRUE, error=FALSE, results='asis'}
+
+for (i in 1:11){
+  if(i==1){
+    cat('### ','Month 1',"{-}",' \n')
+    cat('<source><img width="45%" src="G:\\Team Drives\\Hamid_Paper_1_ASC\\Figures\\rmarkdown figures\\Probability_Month_1.jpeg"/>
+  <img width="45%" src="G:\\Team Drives\\Hamid_Paper_1_ASC\\Figures\\rmarkdown figures\\Calibration_Probability_Month_1.jpeg"/></source>')
+    cat('\n \n')
+  }else{
+    cat('### ', paste("Year", (i-1)),"{-}",' \n')
+    cat(paste0('<source><img width="45%" src="G:\\Team Drives\\Hamid_Paper_1_ASC\\Figures\\rmarkdown figures\\Probability_Year_',(i-1),'.jpeg"/>
+  <img width="45%" src="G:\\Team Drives\\Hamid_Paper_1_ASC\\Figures\\rmarkdown figures\\Calibration_Probability_Year_',(i-1),'.jpeg"/></source>'))
+    cat('\n \n')
+  }
+}
+
+```
+
+## Performance Measures {.tabset .tabset-fade}
+We report the performance measures using the median model for the holdout datasets. 
+
+```{r Table, message=FALSE, echo=FALSE, cache=TRUE, error=FALSE, results='asis'}
+comparison <- read.csv("G:\\Team Drives\\Hamid_Paper_1_ASC\\final models\\LASSO_comparison.csv")
+
+for (i in 2:12){
+  hello <- cbind(comparison[,i][comparison$method=="log"],
+      comparison[,i][comparison$method=="RF"],
+      comparison[,i][comparison$method=="Bagging"],
+      comparison[,i][comparison$method=="Boosting"])
+
+  colnames(hello) <- c("Logistic Regression", "Random Forest", "Bagging", "Boosting")
+
+  rownames(hello) <- c("AUC", "Sensitivity", "Specificity", "Accurcy")
+  if (i==2){
+    assign("Month 1", knitr::kable(hello))
+    cat('### ',paste("Month 1","{-}",'\n'))
+    print(get("Month 1"))
+    cat('\n \n')
+  }else{
+      assign(paste("Year",(i-2)), knitr::kable(hello))
+  cat('### ',paste("Year", (i-2)),"{-}",'\n')
+  print(get(paste("Year", (i-2))))
+  cat('\n \n')
+  }
+}
+
+```
+
+
+
+# Interactive App
+We have created an interactive app that presents two modules for performing the analysis:
+
+(1) Manual Entry, where users can insert the values of predictor variables using several text boxes. 
+
+(2) CSV Entry, where users can upload the values of predictor variables using a comma seperated variable (CSV) file. 
+
+Visit the app: [here](http://dataviz.miamioh.edu/Heart-Transplant/monotonic/).
+
+
+
+

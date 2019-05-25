@@ -1,0 +1,5 @@
+"0",""
+"0","cat(""Number of patients after dropping irrelevant patients: "",nrow(heart.df.cleaned))"
+"1","Number of patients after dropping irrelevant patients: "
+"1"," "
+"1","48442"
