@@ -37,7 +37,7 @@ p_load(haven,dplyr,caret,foreign,glmnet,
        lubridate,dataPreparation,httr, DT, stringr, AUC, snow, testit,caretEnsemble,
        C50, Biocomb, varImp, party,
        randomForest,
-       kernlab,
+       kernlab,gower,
        e1071,Boruta,ROSE,DMwR)
 data.path <- "C:\\Users\\hza0020\\OneDrive - Auburn University\\Transplant\\BUAL-LAB\\DoE\\"
   # source("C:/Users/hza0020/OneDrive - Auburn University/Transplant/BUAL-LAB/DoE/temp/test RF/DOE_functions.R")
@@ -1089,7 +1089,7 @@ if(as.character(as.data.frame(t(Sys.info()))$sysname)=="Linux"){
 
 
 cl <- makeCluster(n_cluster, type="SOCK")
-modeling_result <- parSapply(cl, as.numeric(design_IDs), model_data, All_data, "year1", I_matrix, 
+screeing_glm_FFS <- parSapply(cl, as.numeric(design_IDs), model_data, All_data, "year1", I_matrix, 
                            idenx_holdout, FFS_used, "glm", data_experiments=design_IDs,
                            sampling.method= screening.resampling) 
 stopCluster(cl)
@@ -1097,7 +1097,7 @@ stopCluster(cl)
 
 
 cl <- makeCluster(n_cluster, type="SOCK")
-modeling_result <- parSapply(cl, as.numeric(design_IDs), model_data, All_data, "year1", I_matrix, 
+screeing_glm_LASSO <- parSapply(cl, as.numeric(design_IDs), model_data, All_data, "year1", I_matrix, 
                            idenx_holdout, LASSO_used, "glm", data_experiments=design_IDs,
                            sampling.method= screening.resampling) 
 stopCluster(cl)
