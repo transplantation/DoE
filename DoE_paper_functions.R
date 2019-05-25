@@ -323,7 +323,7 @@ pred_func <- function(ii,traindata,hold_out,TARGET,formul,var_numeric,assigned_s
   resul_pred_perf[2,1] <- caret::sensitivity(resul_raw[,methods_input],hold_out[,TARGET])
   resul_pred_perf[3,1] <- caret::specificity(resul_raw[,methods_input],hold_out[,TARGET])
   resul_pred_perf[4,1] <- (as.data.frame(confusionMatrix(resul_raw[,methods_input], hold_out[,TARGET])$overall))[1,]
-
+  
   return(list(Performance=resul_pred_perf, Predicted=resul_raw, AUC=train_auc))
 }
 
@@ -413,7 +413,7 @@ col_missing_function <- function(input_data){
 # kept_col<-c("year1")
 # col2row_emp<-1
 table_cleaner<-function(Try_data,col2row_emp,ID,kept_col,kept_opt){
-
+  
   data0<-Try_data
   Try_data<-data0[complete.cases(data0[kept_col]),]
   
@@ -503,14 +503,14 @@ FFS_features<-function(ii,data,dependent,exclud, seed=110){
   set.seed(seed)
   exclud<- c(exclud,dependent)
   df1<-data[[ii]]
-
+  
   data_use<-cbind(df1[!names(df1)%in%exclud],df1[[dependent]])
   
   disc<-"MDL"
   threshold=0.001
   attrs.nominal=numeric()
   FF_vars=Biocomb::select.fast.filter(data_use, disc.method=disc, threshold=threshold,
-                             attrs.nominal=attrs.nominal)
+                                      attrs.nominal=attrs.nominal)
   
   FF_vars$Information.Gain<-NULL
   FF_vars$NumberFeature<-NULL
@@ -602,7 +602,7 @@ holdout_index <- function(IDs, seed=2019){
   set.seed <- seed
   index <- list()
   index0 <- c()
-
+  
   for (i in 1:5){
     index[[i]] <- sample(setdiff(IDs, index0), floor(n/5))
     index0 <- c(index0, index[[i]])
@@ -679,132 +679,132 @@ model_data<-function(aa,All_df,TARGET,Index_matrix,Index_test,features,methods_i
                      data_experiments,assigned_seed1=2019){
   gc()
   
-library(pacman) # needs to be installed first
-# p_load is equivalent to combining both install.packages() and library()
-p_load(caret,AUC,MASS,ROSE,DMwR,snow,ranger,parallel)
-  
-All_df1<-All_df[aa]
-All_data.scenario1<-aa
-
-
-modeling <- function(ii,All_df2,TARGET2,Index_matrix2,Index_test2,features2,methods_input2="none", 
-                     sampling.method2=c("none", "down", "up", "rose", "smote"),All_data.scenario2 ,assigned_seed2=2019){
- gc()
   library(pacman) # needs to be installed first
   # p_load is equivalent to combining both install.packages() and library()
   p_load(caret,AUC,MASS,ROSE,DMwR,snow,ranger,parallel)
   
-  test_no <- Index_matrix2[ii,1]
-  impute_no <- Index_matrix2[ii,2]
-  df <- All_df2[[impute_no]]
-  index_t<- which(df$ID%in%Index_test2[[test_no]])
-  #df <- df[,c(features[[impute_no]][[test_no]], TARGET2)]
-  df <- df[,which(names(df)%in% c((features2[[impute_no[1]]][test_no[1]])[[1]],as.character(TARGET2[1])) )]
-  hold_out <- df[index_t,]
-  traindata <- df[-index_t,]
-  traindata$ID <- NULL
-  fold2<-ii
+  All_df1<-All_df[aa]
+  All_data.scenario1<-aa
   
-  set.seed(assigned_seed2+ii)
   
-  # 1: survival; 0: death
-  traindata[,as.character(TARGET2[1])] <- as.factor(ifelse(traindata[,as.character(TARGET2[1])]==0, "Death", "Survival"))
-  hold_out[,as.character(TARGET2[1])] <- as.factor(ifelse(hold_out[,as.character(TARGET2[1])]==0, "Death", "Survival"))
-  
-  formul2<- as.formula(paste0(as.character(TARGET2[1]),"~."))
-  
-  trainers<-function(iii,formul3,traindata3,hold_out3,methods_input3="none",All_data.scenario3=All_data.scenario2,
-                     fold3,TARGET3,assigned_seed3=assigned_seed2){
+  modeling <- function(ii,All_df2,TARGET2,Index_matrix2,Index_test2,features2,methods_input2="none", 
+                       sampling.method2=c("none", "down", "up", "rose", "smote"),All_data.scenario2 ,assigned_seed2=2019){
     gc()
-    set.seed(assigned_seed3)
-    
     library(pacman) # needs to be installed first
     # p_load is equivalent to combining both install.packages() and library()
-    p_load(caret,AUC,MASS,ROSE,DMwR,snow,ranger)
+    p_load(caret,AUC,MASS,ROSE,DMwR,snow,ranger,parallel)
     
-    sampling.method<-iii
-    if(iii=="none"){sampling.method<-NULL}
-    formul<-formul3
+    test_no <- Index_matrix2[ii,1]
+    impute_no <- Index_matrix2[ii,2]
+    df <- All_df2[[impute_no]]
+    index_t<- which(df$ID%in%Index_test2[[test_no]])
+    #df <- df[,c(features[[impute_no]][[test_no]], TARGET2)]
+    df <- df[,which(names(df)%in% c((features2[[impute_no[1]]][test_no[1]])[[1]],as.character(TARGET2[1])) )]
+    hold_out <- df[index_t,]
+    traindata <- df[-index_t,]
+    traindata$ID <- NULL
+    fold2<-ii
     
+    set.seed(assigned_seed2+ii)
     
-    # I used 5 fold cross validation 
-    control_setting <- caret::trainControl(method = "cv", number=5, sampling=sampling.method , summaryFunction = twoClassSummary, 
-                                    search="random", classProbs = TRUE, selectionFunction="tolerance")
+    # 1: survival; 0: death
+    traindata[,as.character(TARGET2[1])] <- as.factor(ifelse(traindata[,as.character(TARGET2[1])]==0, "Death", "Survival"))
+    hold_out[,as.character(TARGET2[1])] <- as.factor(ifelse(hold_out[,as.character(TARGET2[1])]==0, "Death", "Survival"))
     
-    if (methods_input3%in% c("glm", "nnet", "svmRadial")){
-      result_model <- train(formul, data=traindata3, method=methods_input3, family="binomial",
-                            trControl = control_setting, metric="ROC")
-    }else if (methods_input3%in%c("rf", "gbm", "earth", "rpart", "xgbTree", "naive_bayes","xgbDART" ,"ranger")){
-      result_model <- train(formul,  data=traindata3, method=methods_input3,
-                            trControl = control_setting, tuneLength=10, metric="ROC")
-    }else if(methods_input3=="lda"){
-      result_model <- train(formul, data=traindata3, method=methods_input3, preProcess="pca", preProcOptions = list(method="BoxCox"),
-                            trControl = control_setting, metric="ROC")
-    }else if(methods_input3=="treebag"){
-      result_model <- train(formul, data=traindata3, method=methods_input3, family="binomial",
-                            trControl = control_setting, tuneLength=10, metric="ROC")
+    formul2<- as.formula(paste0(as.character(TARGET2[1]),"~."))
+    
+    trainers<-function(iii,formul3,traindata3,hold_out3,methods_input3="none",All_data.scenario3=All_data.scenario2,
+                       fold3,TARGET3,assigned_seed3=assigned_seed2){
+      gc()
+      set.seed(assigned_seed3)
+      
+      library(pacman) # needs to be installed first
+      # p_load is equivalent to combining both install.packages() and library()
+      p_load(caret,AUC,MASS,ROSE,DMwR,snow,ranger)
+      
+      sampling.method<-iii
+      if(iii=="none"){sampling.method<-NULL}
+      formul<-formul3
+      
+      
+      # I used 5 fold cross validation 
+      control_setting <- caret::trainControl(method = "cv", number=5, sampling=sampling.method , summaryFunction = twoClassSummary, 
+                                             search="random", classProbs = TRUE, selectionFunction="tolerance")
+      
+      if (methods_input3%in% c("glm", "nnet", "svmRadial")){
+        result_model <- train(formul, data=traindata3, method=methods_input3, family="binomial",
+                              trControl = control_setting, metric="ROC")
+      }else if (methods_input3%in%c("rf", "gbm", "earth", "rpart", "xgbTree", "naive_bayes","xgbDART" ,"ranger")){
+        result_model <- train(formul,  data=traindata3, method=methods_input3,
+                              trControl = control_setting, tuneLength=10, metric="ROC")
+      }else if(methods_input3=="lda"){
+        result_model <- train(formul, data=traindata3, method=methods_input3, preProcess="pca", preProcOptions = list(method="BoxCox"),
+                              trControl = control_setting, metric="ROC")
+      }else if(methods_input3=="treebag"){
+        result_model <- train(formul, data=traindata3, method=methods_input3, family="binomial",
+                              trControl = control_setting, tuneLength=10, metric="ROC")
+      }
+      
+      resul_raw <- as.data.frame(matrix(NA, ncol = 3, nrow = nrow(hold_out)))
+      colnames(resul_raw) <- c("TARGET", methods_input3, "Probability")
+      resul_raw$TARGET <- hold_out[as.character(TARGET3[1])]
+      
+      train_raw <- as.data.frame(matrix(NA, ncol = 3, nrow = nrow(traindata3)))
+      colnames(train_raw) <- c("TARGET", methods_input3, "Probability")
+      train_raw$TARGET <- traindata3[as.character(TARGET3[1])]
+      
+      resul_pred_perf<-as.data.frame(matrix(NA, ncol = 1, nrow = 4))
+      colnames(resul_pred_perf)<-c(methods_input3)
+      rownames(resul_pred_perf)<-c("auc","sen","spec","accu")
+      train_auc <- NA
+      
+      #if(class(try(varImp(result_model),silent = TRUE))!="try-error"){
+      train_raw$Probability <- predict(result_model, newdata=traindata3, type="prob")[,2]
+      train_raw[methods_input3] <- predict(result_model, newdata=traindata3, type="raw")
+      #train_auc <- AUC::auc(roc(train_raw$Probability, traindata[,TARGET]))
+      resul_raw[methods_input3] <- predict(result_model, newdata=hold_out, type="raw")
+      resul_raw$Probability <- predict(result_model, newdata=hold_out, type="prob")[,2]
+      resul_pred_perf[1,1] <- AUC::auc(roc(resul_raw$Probability,hold_out[,as.character(TARGET3[1])]))
+      resul_pred_perf[2,1] <- caret::sensitivity(resul_raw[,methods_input3],hold_out[,as.character(TARGET3[1])])
+      resul_pred_perf[3,1] <- caret::specificity(resul_raw[,methods_input3],hold_out[,as.character(TARGET3[1])])
+      resul_pred_perf[4,1] <- (as.data.frame(confusionMatrix(resul_raw[,methods_input3], hold_out[,as.character(TARGET3[1])])$overall))[1,]
+      #}
+      
+      
+      # putting summary of the experiment in here
+      experiment.summary<-as.data.frame(matrix(0, ncol = 5, nrow = 1))
+      names(experiment.summary)<-c("data_scenario","training_algorithm","resampling_method","fold","TARGET")
+      experiment.summary$data_scenario<-All_data.scenario3
+      experiment.summary$training_algorithm<-methods_input3
+      experiment.summary$resampling_method<-iii
+      experiment.summary$fold<-fold3
+      experiment.summary$TARGET<-as.character(TARGET3[1])
+      
+      return(list(experiment.summary=experiment.summary, Performance=resul_pred_perf, Predicted=resul_raw
+      ))
+      
     }
     
-    resul_raw <- as.data.frame(matrix(NA, ncol = 3, nrow = nrow(hold_out)))
-    colnames(resul_raw) <- c("TARGET", methods_input3, "Probability")
-    resul_raw$TARGET <- hold_out[as.character(TARGET3[1])]
     
-    train_raw <- as.data.frame(matrix(NA, ncol = 3, nrow = nrow(traindata3)))
-    colnames(train_raw) <- c("TARGET", methods_input3, "Probability")
-    train_raw$TARGET <- traindata3[as.character(TARGET3[1])]
     
-    resul_pred_perf<-as.data.frame(matrix(NA, ncol = 1, nrow = 4))
-    colnames(resul_pred_perf)<-c(methods_input3)
-    rownames(resul_pred_perf)<-c("auc","sen","spec","accu")
-    train_auc <- NA
+    cl <- makeCluster(length(sampling.method2), type="SOCK")
+    modeling_result <- parSapply(cl, sampling.method2, trainers ,formul3=formul2,traindata3=traindata,hold_out3=hold_out,
+                                 methods_input3=methods_input2,fold3=fold2,TARGET3=TARGET2,assigned_seed3=assigned_seed2) 
+    stopCluster(cl)
     
-    #if(class(try(varImp(result_model),silent = TRUE))!="try-error"){
-    train_raw$Probability <- predict(result_model, newdata=traindata3, type="prob")[,2]
-    train_raw[methods_input3] <- predict(result_model, newdata=traindata3, type="raw")
-    #train_auc <- AUC::auc(roc(train_raw$Probability, traindata[,TARGET]))
-    resul_raw[methods_input3] <- predict(result_model, newdata=hold_out, type="raw")
-    resul_raw$Probability <- predict(result_model, newdata=hold_out, type="prob")[,2]
-    resul_pred_perf[1,1] <- AUC::auc(roc(resul_raw$Probability,hold_out[,as.character(TARGET3[1])]))
-    resul_pred_perf[2,1] <- caret::sensitivity(resul_raw[,methods_input3],hold_out[,as.character(TARGET3[1])])
-    resul_pred_perf[3,1] <- caret::specificity(resul_raw[,methods_input3],hold_out[,as.character(TARGET3[1])])
-    resul_pred_perf[4,1] <- (as.data.frame(confusionMatrix(resul_raw[,methods_input3], hold_out[,as.character(TARGET3[1])])$overall))[1,]
-    #}
+    return(modeling_result)
     
-
-    # putting summary of the experiment in here
-    experiment.summary<-as.data.frame(matrix(0, ncol = 4, nrow = 1))
-    names(experiment.summary)<-c("data_scenario","training_algorithm","resampling_method","fold","TARGET")
-    experiment.summary$data_scenario<-All_data.scenario3
-    experiment.summary$training_algorithm<-methods_input3
-    experiment.summary$resampling_method<-iii
-    experiment.summary$fold<-fold3
-    experiment.summary$TARGET<-as.character(TARGET3[1])
-    
-    return(list(experiment.summary=experiment.summary, Performance=resul_pred_perf, Predicted=resul_raw
-                ))
     
   }
   
-
+  cl.main <- makeCluster(length(data_experiments), type="SOCK")
+  modeling_result.main <- parSapply(cl.main, c(1:iteration), modeling ,All_df2=All_df1,TARGET2=TARGET,Index_matrix2=Index_matrix,
+                                    Index_test2=Index_test,features2=features,methods_input2=methods_input, 
+                                    sampling.method2=sampling.method, All_data.scenario2=All_data.scenario1, assigned_seed2=2019) 
+  stopCluster(cl.main)
   
-  cl <- makeCluster(length(sampling.method2), type="SOCK")
-  modeling_result <- parSapply(cl, sampling.method2, trainers ,formul3=formul2,traindata3=traindata,hold_out3=hold_out,
-                               methods_input3=methods_input2,fold3=fold2,TARGET3=TARGET2,assigned_seed3=assigned_seed2) 
-  stopCluster(cl)
+  return(modeling_result.main)
   
-  return(modeling_result)
-  
-
-}
-
-cl.main <- makeCluster(length(data_experiments), type="SOCK")
-modeling_result.main <- parSapply(cl.main, c(1:iteration), modeling ,All_df2=All_df1,TARGET2=TARGET,Index_matrix2=Index_matrix,
-                                  Index_test2=Index_test,features2=features,methods_input2=methods_input, 
-                                  sampling.method2=sampling.method, All_data.scenario2=All_data.scenario1, assigned_seed2=2019) 
-stopCluster(cl.main)
-
-return(modeling_result.main)
-
 }
 
 #' Variable selection using recurrent relative variable importance (r2VIM).
